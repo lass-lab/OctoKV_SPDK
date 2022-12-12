@@ -593,6 +593,8 @@ nvme_pcie_qpair_submit_tracker(struct spdk_nvme_qpair *qpair, struct nvme_tracke
 	struct nvme_request	*req;
 	struct nvme_pcie_qpair	*pqpair = nvme_pcie_qpair(qpair);
 	struct spdk_nvme_ctrlr	*ctrlr = qpair->ctrlr;
+	//struct spdk_nvmf_tgt *tgt;
+	//tgt = qpair->transport->tgt;
 
 	req = tr->req;
 	assert(req != NULL);
@@ -601,26 +603,35 @@ nvme_pcie_qpair_submit_tracker(struct spdk_nvme_qpair *qpair, struct nvme_tracke
 		/* This is first cmd of two fused commands - don't ring doorbell */
 		qpair->first_fused_submitted = 1;
 	}
+	//nvme_robust_mutex_lock(&ctrlr->ctrlr_lock);
 
 	/* Don't use wide instructions to copy NVMe command, this is limited by QEMU
 	 * virtual NVMe controller, the maximum access width is 8 Bytes for one time.
 	 */
 	if (spdk_unlikely((ctrlr->quirks & NVME_QUIRK_MAXIMUM_PCI_ACCESS_WIDTH) && pqpair->sq_in_cmb)) {
+		SPDK_NOTICELOG("1\n");
 		nvme_pcie_copy_command_mmio(&pqpair->cmd[pqpair->sq_tail], &req->cmd);
 	} else {
 		/* Copy the command from the tracker to the submission queue. */
+		//SPDK_NOTICELOG("sq_tail:%d,qpair:id:%d\n",pqpair->sq_tail,qpair->id+1);
+		//pthread_mutex_lock(&tgt->mutex);
 		nvme_pcie_copy_command(&pqpair->cmd[pqpair->sq_tail], &req->cmd);
 	}
+
 
 	if (spdk_unlikely(++pqpair->sq_tail == pqpair->num_entries)) {
 		pqpair->sq_tail = 0;
 	}
+	//pthread_mutex_unlock(&tgt->mutex);
+	//nvme_robust_mutex_unlock(&ctrlr->ctrlr_lock);
 
 	if (spdk_unlikely(pqpair->sq_tail == pqpair->sq_head)) {
+		SPDK_NOTICELOG("sq_tail is passing sp_head!\n");
 		SPDK_ERRLOG("sq_tail is passing sq_head!\n");
 	}
 
 	if (!pqpair->flags.delay_cmd_submit) {
+		SPDK_NOTICELOG("3\n");
 		nvme_pcie_qpair_ring_sq_doorbell(qpair);
 	}
 }
@@ -655,6 +666,7 @@ nvme_pcie_qpair_complete_tracker(struct spdk_nvme_qpair *qpair, struct nvme_trac
 	assert(cpl->cid == req->cmd.cid);
 
 	if (retry) {
+		SPDK_NOTICELOG("retry\n");
 		req->retries++;
 		nvme_pcie_qpair_submit_tracker(qpair, tr);
 	} else {
@@ -1076,7 +1088,7 @@ nvme_pcie_prp_list_append(struct spdk_nvme_ctrlr *ctrlr, struct nvme_tracker *tr
 	uintptr_t page_mask = page_size - 1;
 	uint64_t phys_addr;
 	uint32_t i;
-
+	//SPDK_NOTICELOG("in\n");
 	SPDK_DEBUGLOG(nvme, "prp_index:%u virt_addr:%p len:%u\n",
 		      *prp_index, virt_addr, (uint32_t)len);
 
@@ -1423,7 +1435,7 @@ nvme_pcie_qpair_build_prps_sgl_request(struct spdk_nvme_qpair *qpair, struct nvm
 		 */
 		assert((length == remaining_transfer_len) ||
 		       _is_page_aligned((uintptr_t)virt_addr + length, page_size));
-
+		//SPDK_NOTICELOG("dd\n");
 		rc = nvme_pcie_prp_list_append(qpair->ctrlr, tr, &prp_index, virt_addr, length, page_size);
 		if (rc) {
 			nvme_pcie_fail_request_bad_vtophys(qpair, tr);
@@ -1504,7 +1516,6 @@ nvme_pcie_qpair_submit_request(struct spdk_nvme_qpair *qpair, struct nvme_reques
 	enum nvme_payload_type	payload_type;
 	bool			sgl_supported;
 	bool			dword_aligned = true;
-
 	if (spdk_unlikely(nvme_qpair_is_admin_queue(qpair))) {
 		nvme_robust_mutex_lock(&ctrlr->ctrlr_lock);
 	}
@@ -1545,6 +1556,7 @@ nvme_pcie_qpair_submit_request(struct spdk_nvme_qpair *qpair, struct nvme_reques
 		if (sgl_supported && !(ctrlr->flags & SPDK_NVME_CTRLR_SGL_REQUIRES_DWORD_ALIGNMENT)) {
 			dword_aligned = false;
 		}
+		//SPDK_NOTICELOG("nvme_pcie_qpair_submit_request\n");
 		rc = g_nvme_pcie_build_req_table[payload_type][sgl_supported](qpair, req, tr, dword_aligned);
 		if (rc < 0) {
 			goto exit;
@@ -1555,6 +1567,7 @@ nvme_pcie_qpair_submit_request(struct spdk_nvme_qpair *qpair, struct nvme_reques
 			goto exit;
 		}
 	}
+	//SPDK_NOTICELOG("nvme_pcie_qpair_submit_request_before_tracker\n");
 
 	nvme_pcie_qpair_submit_tracker(qpair, tr);
 

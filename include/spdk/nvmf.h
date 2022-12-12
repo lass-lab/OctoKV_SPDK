@@ -50,6 +50,8 @@
 extern "C" {
 #endif
 
+static TAILQ_HEAD(, spdk_nvmf_tgt) g_nvmf_tgts = TAILQ_HEAD_INITIALIZER(g_nvmf_tgts);
+
 #define NVMF_TGT_NAME_MAX_LENGTH	256
 
 struct spdk_nvmf_tgt;

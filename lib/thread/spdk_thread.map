@@ -55,6 +55,9 @@
 	spdk_thread_get_interrupt_fd;
 	spdk_interrupt_mode_enable;
 	spdk_interrupt_mode_is_enabled;
+	msg_queue_run_batch;
+	spdk_thread_send_msg2;
+# msg_queue_run;
 
 	# internal functions in spdk_internal/thread.h
 	spdk_poller_get_name;

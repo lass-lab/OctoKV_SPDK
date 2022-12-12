@@ -340,9 +340,9 @@ struct spdk_sock *
 spdk_sock_accept(struct spdk_sock *sock)
 {
 	struct spdk_sock *new_sock;
-
 	new_sock = sock->net_impl->accept(sock);
 	if (new_sock != NULL) {
+		//printf("spdk_sock_accpt!\n");
 		/* Inherit the opts from the "accept sock" */
 		new_sock->opts = sock->opts;
 		memcpy(&new_sock->opts, &sock->opts, sizeof(new_sock->opts));

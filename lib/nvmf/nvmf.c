@@ -50,7 +50,7 @@ SPDK_LOG_REGISTER_COMPONENT(nvmf)
 #define SPDK_NVMF_DEFAULT_MAX_SUBSYSTEMS 1024
 #define SPDK_NVMF_DEFAULT_ACCEPT_POLL_RATE_US 10000
 
-static TAILQ_HEAD(, spdk_nvmf_tgt) g_nvmf_tgts = TAILQ_HEAD_INITIALIZER(g_nvmf_tgts);
+//static TAILQ_HEAD(, spdk_nvmf_tgt) g_nvmf_tgts = TAILQ_HEAD_INITIALIZER(g_nvmf_tgts);
 
 typedef void (*nvmf_qpair_disconnect_cpl)(void *ctx, int status);
 static void nvmf_tgt_destroy_poll_group(void *io_device, void *ctx_buf);
@@ -144,7 +144,8 @@ nvmf_tgt_create_poll_group(void *io_device, void *ctx_buf)
 			return -1;
 		}
 	}
-
+	printf("tgt_name:%s___________________----------------\n",tgt->name);
+	//TAILQ_INSERT_TAIL(&g_nvmf_tgts->tgts, tgt, link);
 	pthread_mutex_lock(&tgt->mutex);
 	TAILQ_INSERT_TAIL(&tgt->poll_groups, group, link);
 	pthread_mutex_unlock(&tgt->mutex);

@@ -38,6 +38,9 @@
 #include "spdk/assert.h"
 #include "spdk/thread.h"
 #include "spdk/nvmf_transport.h"
+#include "spdk_internal/thread.h"
+#include "spdk/tree.h"
+#include "spdk/nvmf.h"
 #include "spdk/string.h"
 #include "spdk/trace.h"
 #include "spdk/util.h"
@@ -54,6 +57,10 @@
 #define SPDK_NVMF_TCP_DEFAULT_SOCK_PRIORITY 0
 #define SPDK_NVMF_TCP_DEFAULT_CONTROL_MSG_NUM 32
 #define SPDK_NVMF_TCP_DEFAULT_SUCCESS_OPTIMIZATION true
+
+int ttpp = 0;
+struct spdk_nvmf_poll_group *gg_group;
+struct spdk_nvmf_qpair *gg_qpair;
 
 const struct spdk_nvmf_transport_ops spdk_nvmf_transport_tcp;
 
@@ -97,6 +104,92 @@ enum spdk_nvmf_tcp_req_state {
 	TCP_REQUEST_NUM_STATES,
 };
 
+
+#define SPDK_MAX_THREAD_NAME_LEN 256
+
+
+enum spdk_thread_state {
+	/* The thread is pocessing poller and message by spdk_thread_poll(). */
+	SPDK_THREAD_STATE_RUNNING,
+
+	/* The thread is in the process of termination. It reaps unregistering
+	 * poller are releasing I/O channel.
+	 */
+	SPDK_THREAD_STATE_EXITING,
+
+	/* The thread is exited. It is ready to call spdk_thread_destroy(). */
+	SPDK_THREAD_STATE_EXITED,
+};
+
+struct spdk_thread {
+	uint64_t			tsc_last;
+	struct spdk_thread_stats	stats;
+	/*
+	 * Contains pollers actively running on this thread.  Pollers
+	 *  are run round-robin. The thread takes one poller from the head
+	 *  of the ring, executes it, then puts it back at the tail of
+	 *  the ring.
+	 */
+	TAILQ_HEAD(active_pollers_head, spdk_poller)	active_pollers;
+	/**
+	 * Contains pollers running on this thread with a periodic timer.
+	 */
+	RB_HEAD(timed_pollers_tree, spdk_poller)	timed_pollers;
+	struct spdk_poller				*first_timed_poller;
+	/*
+	 * Contains paused pollers.  Pollers on this queue are waiting until
+	 * they are resumed (in which case they're put onto the active/timer
+	 * queues) or unregistered.
+	 */
+	TAILQ_HEAD(paused_pollers_head, spdk_poller)	paused_pollers;
+	struct spdk_ring		*messages;
+	int				msg_fd;
+	SLIST_HEAD(, spdk_msg)		msg_cache;
+	size_t				msg_cache_count;
+	spdk_msg_fn			critical_msg;
+	uint64_t			id;
+	enum spdk_thread_state		state;
+	int				pending_unregister_count;
+
+	RB_HEAD(io_channel_tree, spdk_io_channel)	io_channels;
+	TAILQ_ENTRY(spdk_thread)			tailq;
+
+	char				name[SPDK_MAX_THREAD_NAME_LEN + 1];
+	struct spdk_cpuset		cpumask;
+	uint64_t			exit_timeout_tsc;
+
+	/* Indicates whether this spdk_thread currently runs in interrupt. */
+	bool				in_interrupt;
+	struct spdk_fd_group		*fgrp;
+
+	/* User context allocated at the end */
+	uint8_t				ctx[0];
+};
+/*
+struct spdk_thread *th1 = NULL;
+struct spdk_thread *th2 = NULL;
+struct spdk_thread *th3 = NULL;
+struct spdk_thread *th4 = NULL;
+struct spdk_thread *th5 = NULL;
+struct spdk_thread *th6 = NULL;
+struct spdk_thread *th7 = NULL;
+struct spdk_thread *th8 = NULL;
+struct spdk_thread *th9 = NULL;
+struct spdk_thread *th10 = NULL;
+struct spdk_thread *th11 = NULL;
+struct spdk_nvmf_qpair *qp1=NULL;
+struct spdk_nvmf_qpair *qp2=NULL;
+struct spdk_nvmf_qpair *qp3=NULL;
+struct spdk_nvmf_qpair *qp4=NULL;
+struct spdk_nvmf_qpair *qp5=NULL;
+struct spdk_nvmf_qpair *qp6=NULL;
+struct spdk_nvmf_qpair *qp7=NULL;
+struct spdk_nvmf_qpair *qp8=NULL;
+struct spdk_nvmf_qpair *qp9=NULL;
+struct spdk_nvmf_qpair *qp10=NULL;
+struct spdk_nvmf_qpair *qp11=NULL;
+struct spdk_thread *thread5 = NULL;
+*/
 static const char *spdk_nvmf_tcp_term_req_fes_str[] = {
 	"Invalid PDU Header Field",
 	"PDU Sequence Error",
@@ -212,6 +305,8 @@ struct spdk_nvmf_tcp_req  {
 
 	STAILQ_ENTRY(spdk_nvmf_tcp_req)		link;
 	TAILQ_ENTRY(spdk_nvmf_tcp_req)		state_link;
+	int tttag;
+	struct spdk_nvmf_qpair *qpair;
 };
 
 struct spdk_nvmf_tcp_qpair {
@@ -332,10 +427,15 @@ static void nvmf_tcp_poll_group_destroy(struct spdk_nvmf_transport_poll_group *g
 static void _nvmf_tcp_send_c2h_data(struct spdk_nvmf_tcp_qpair *tqpair,
 				    struct spdk_nvmf_tcp_req *tcp_req);
 
+
+static int
+nvmf_tcp_qpair_init(struct spdk_nvmf_qpair *qpair);
 static void
 nvmf_tcp_req_set_state(struct spdk_nvmf_tcp_req *tcp_req,
 		       enum spdk_nvmf_tcp_req_state state)
 {
+	//printf("*****************nvmf_tcp_req_set_state*****************\n");
+	//printf("tcp_teq->state:%d,state:%d\n",tcp_req->state, state);
 	struct spdk_nvmf_qpair *qpair;
 	struct spdk_nvmf_tcp_qpair *tqpair;
 
@@ -345,7 +445,7 @@ nvmf_tcp_req_set_state(struct spdk_nvmf_tcp_req *tcp_req,
 	assert(tqpair->state_cntr[tcp_req->state] > 0);
 	tqpair->state_cntr[tcp_req->state]--;
 	tqpair->state_cntr[state]++;
-
+	
 	tcp_req->state = state;
 }
 
@@ -370,27 +470,35 @@ nvmf_tcp_req_pdu_fini(struct spdk_nvmf_tcp_req *tcp_req)
 static struct spdk_nvmf_tcp_req *
 nvmf_tcp_req_get(struct spdk_nvmf_tcp_qpair *tqpair)
 {
-	struct spdk_nvmf_tcp_req *tcp_req;
-
+	struct spdk_nvmf_tcp_req *tcp_req, *tcp_req2;
+	struct spdk_nvmf_tcp_req *req_tmp; //임의추가
 	tcp_req = TAILQ_FIRST(&tqpair->tcp_req_free_queue);
 	if (!tcp_req) {
 		return NULL;
 	}
+	struct spdk_nvmf_request *req = &tcp_req->req;
+	struct spdk_nvme_cmd *cmd = &req->cmd->nvme_cmd;
 
+	//SPDK_NOTICELOG("tcp_req:0x%x\n",cmd->opc);
 	memset(&tcp_req->rsp, 0, sizeof(tcp_req->rsp));
 	tcp_req->h2c_offset = 0;
 	tcp_req->has_incapsule_data = false;
 	tcp_req->req.dif_enabled = false;
 
+	/*****실제 코드*****/
 	TAILQ_REMOVE(&tqpair->tcp_req_free_queue, tcp_req, state_link);
 	TAILQ_INSERT_TAIL(&tqpair->tcp_req_working_queue, tcp_req, state_link);
 	nvmf_tcp_req_set_state(tcp_req, TCP_REQUEST_STATE_NEW);
+	/********************/
+
 	return tcp_req;
 }
 
 static inline void
 nvmf_tcp_req_put(struct spdk_nvmf_tcp_qpair *tqpair, struct spdk_nvmf_tcp_req *tcp_req)
 {
+	struct spdk_thread *thread = spdk_get_thread();
+	//SPDK_NOTICELOG("put:%d\n",thread->id);
 	TAILQ_REMOVE(&tqpair->tcp_req_working_queue, tcp_req, state_link);
 	TAILQ_INSERT_TAIL(&tqpair->tcp_req_free_queue, tcp_req, state_link);
 	nvmf_tcp_req_set_state(tcp_req, TCP_REQUEST_STATE_FREE);
@@ -479,15 +587,19 @@ static void
 nvmf_tcp_qpair_destroy(struct spdk_nvmf_tcp_qpair *tqpair)
 {
 	int err = 0;
-
+	
 	SPDK_DEBUGLOG(nvmf_tcp, "enter\n");
 
 	err = spdk_sock_close(&tqpair->sock);
 	assert(err == 0);
 	nvmf_tcp_cleanup_all_states(tqpair);
 
+
+	struct spdk_nvmf_qpair *qpair = &tqpair->qpair;
+	struct spdk_nvmf_poll_group *group = qpair->group;
+
 	if (tqpair->state_cntr[TCP_REQUEST_STATE_FREE] != tqpair->resource_count) {
-		SPDK_ERRLOG("tqpair(%p) free tcp request num is %u but should be %u\n", tqpair,
+		SPDK_ERRLOG("%d: tqpair(%p) free tcp request num is %u but should be %u\n", group->thread->id, tqpair,
 			    tqpair->state_cntr[TCP_REQUEST_STATE_FREE],
 			    tqpair->resource_count);
 		err++;
@@ -990,6 +1102,7 @@ static int
 nvmf_tcp_qpair_init(struct spdk_nvmf_qpair *qpair)
 {
 	struct spdk_nvmf_tcp_qpair *tqpair;
+	printf("______++++++++______nvmf_tcp_qpair_init______+++++++________\n");
 
 	tqpair = SPDK_CONTAINEROF(qpair, struct spdk_nvmf_tcp_qpair, qpair);
 
@@ -1062,9 +1175,10 @@ nvmf_tcp_port_accept(struct spdk_nvmf_transport *transport, struct spdk_nvmf_tcp
 	struct spdk_sock *sock;
 	uint32_t count = 0;
 	int i;
-
+	//printf("nvmf_tcp_port_accept 시작\n");
 	for (i = 0; i < NVMF_TCP_MAX_ACCEPT_SOCK_ONE_TIME; i++) {
 		sock = spdk_sock_accept(port->listen_sock);
+	//	printf("in for loop:%d\n",i);
 		if (sock == NULL) {
 			break;
 		}
@@ -1232,6 +1346,9 @@ static void
 nvmf_tcp_qpair_set_recv_state(struct spdk_nvmf_tcp_qpair *tqpair,
 			      enum nvme_tcp_pdu_recv_state state)
 {
+	//printf("DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD\n");
+	//printf("LOG:The recv state of tqpair%p->recv_state=%d is same with the state(%d) to be set\n",
+	//		tqpair, tqpair->recv_state ,state);
 	if (tqpair->recv_state == state) {
 		SPDK_ERRLOG("The recv state of tqpair=%p is same with the state(%d) to be set\n",
 			    tqpair, state);
@@ -1324,6 +1441,7 @@ nvmf_tcp_send_c2h_term_req(struct spdk_nvmf_tcp_qpair *tqpair, struct nvme_tcp_p
 	nvmf_tcp_qpair_write_pdu(tqpair, rsp_pdu, nvmf_tcp_send_c2h_term_req_complete, tqpair);
 }
 
+
 static void
 nvmf_tcp_capsule_cmd_hdr_handle(struct spdk_nvmf_tcp_transport *ttransport,
 				struct spdk_nvmf_tcp_qpair *tqpair,
@@ -1346,7 +1464,6 @@ nvmf_tcp_capsule_cmd_hdr_handle(struct spdk_nvmf_tcp_transport *ttransport,
 		nvmf_tcp_qpair_disconnect(tqpair);
 		return;
 	}
-
 	pdu->req = tcp_req;
 	assert(tcp_req->state == TCP_REQUEST_STATE_NEW);
 	nvmf_tcp_req_process(ttransport, tcp_req);
@@ -1954,6 +2071,7 @@ nvmf_tcp_pdu_payload_insert_dif(struct nvme_tcp_pdu *pdu, uint32_t read_offset,
 	return rc;
 }
 
+
 static int
 nvmf_tcp_sock_process(struct spdk_nvmf_tcp_qpair *tqpair)
 {
@@ -1963,12 +2081,13 @@ nvmf_tcp_sock_process(struct spdk_nvmf_tcp_qpair *tqpair)
 	uint32_t data_len;
 	struct spdk_nvmf_tcp_transport *ttransport = SPDK_CONTAINEROF(tqpair->qpair.transport,
 			struct spdk_nvmf_tcp_transport, transport);
-
+	
 	/* The loop here is to allow for several back-to-back state changes. */
 	do {
 		prev_state = tqpair->recv_state;
 		SPDK_DEBUGLOG(nvmf_tcp, "tqpair(%p) recv pdu entering state %d\n", tqpair, prev_state);
 
+		//SPDK_NOTICELOG("tqpair(%p) recv pdu recv_state %d\n", tqpair, tqpair->recv_state);
 		pdu = tqpair->pdu_in_progress;
 		switch (tqpair->recv_state) {
 		/* Wait for the common header  */
@@ -2432,6 +2551,137 @@ nvmf_tcp_req_process(struct spdk_nvmf_tcp_transport *ttransport,
 	group = &tqpair->group->group;
 	assert(tcp_req->state != TCP_REQUEST_STATE_FREE);
 
+	
+	/********추가 코드********
+	struct spdk_nvmf_request *req = &tcp_req->req;
+	struct spdk_nvmf_qpair *qpair = tcp_req->req.qpair;
+	struct spdk_nvmf_poll_group *pgroup = qpair->group;
+	struct spdk_thread *cthread = NULL;
+	struct spdk_nvme_cmd *cmd = &req->cmd->nvme_cmd;
+	SPDK_NOTICELOG("nvmf_tcp_req_qid:%d\n",qpair->qid);
+
+	switch (pgroup->thread->id) {
+			case 1:
+				if(th2 == NULL){
+					th1 = pgroup->thread;
+					qp1 = qpair;
+					SPDK_NOTICELOG("th1:%d\n",th1->id);
+				}
+				break;
+			case 2:
+				if(th2 == NULL){
+					th2 = pgroup->thread;
+					qp2 = qpair;
+					SPDK_NOTICELOG("th2:%d\n",th2->id);
+				}
+				break;
+			case 3:
+				if(th3 == NULL){
+					th3 = pgroup->thread;
+					qp3 = qpair;
+					SPDK_NOTICELOG("th3:%d\n",th3->id);
+				}
+				break;
+			case 4:
+				if(th4 == NULL){
+					th4 = pgroup->thread;
+					qp4 = qpair;
+					SPDK_NOTICELOG("th4:%d\n",th4->id);
+				}
+				break;	
+			case 5:
+				if(th5 == NULL){
+					th5 = pgroup->thread;
+					qp5 = qpair;
+					SPDK_NOTICELOG("th5:%d\n",th5->id);
+				}
+				break;	
+			case 6:
+				if(th6 == NULL){
+					th6 = pgroup->thread;
+					qp6 = qpair;
+					SPDK_NOTICELOG("th6:%d\n",th6->id);
+				}
+				break;	
+			case 7:
+				if(th7 == NULL){
+					th7 = pgroup->thread;
+					qp7 = qpair;
+					SPDK_NOTICELOG("th7:%d\n",th7->id);
+				}
+				break;	
+			case 8:
+				if(th8 == NULL){
+					th8 = pgroup->thread;
+					qp8 = qpair;
+					SPDK_NOTICELOG("th8:%d\n",th8->id);
+				}
+				break;	
+			case 9:
+				if(th9 == NULL){
+					th9 = pgroup->thread;
+					qp9 = qpair;
+					SPDK_NOTICELOG("th9:%d\n",th9->id);
+				}
+				break;
+			case 10:
+				if(th10 == NULL){
+					th10 = pgroup->thread;
+					qp10 = qpair;
+					SPDK_NOTICELOG("th10:%d\n",th10->id);
+				}
+				break;
+			default:
+				th11 = pgroup->thread;
+				qp11 = qpair;
+				SPDK_NOTICELOG("else th11:%d\n",th11->id);
+				break;
+	}
+	**************************/
+	/*
+	if(cmd->opc == 0xC1){
+				// 1. thread 정하기	
+				tqpair->state_cntr[tcp_req->state]--;
+				
+				if(th1 != NULL && pgroup->thread->id != th1->id){
+					req->qpair = qp1;
+					cthread = th1;
+					SPDK_NOTICELOG("1.th %d -> th %d\n",pgroup->thread->id, th1->id);
+				}
+				else if(th2 != NULL && pgroup->thread->id != th2->id){
+					req->qpair = qp2;
+					cthread = th2;
+					SPDK_NOTICELOG("2.th %d -> th %d\n",pgroup->thread->id, th2->id);
+				}
+				if(th3 != NULL && pgroup->thread->id != th3->id){
+					req->qpair = qp3;
+					cthread = th3;
+					SPDK_NOTICELOG("3.th %d -> th %d\n",pgroup->thread->id, th3->id);
+				}
+				else if(th4 != NULL && pgroup->thread->id != th4->id){
+					req->qpair = qp4;
+					cthread = th4;
+					SPDK_NOTICELOG("4.th %d -> th %d\n",pgroup->thread->id, th4->id);
+				}
+				else{
+					req->qpair = qp5;
+					cthread = th5;
+					SPDK_NOTICELOG("4.th %d -> th %d\n",pgroup->thread->id, th4->id);
+					}
+				struct spdk_nvmf_qpair *qqpair;
+				struct spdk_nvmf_tcp_qpair *ttqpair;
+				enum spdk_nvmf_tcp_req_state sstate = TCP_REQUEST_STATE_EXECUTING;
+				qqpair = req->qpair;
+				ttqpair = SPDK_CONTAINEROF(qqpair, struct spdk_nvmf_tcp_qpair, qpair);
+				ttqpair->state_cntr[sstate]++;
+				tcp_req->state = sstate;
+	}
+
+	if(cmd->opc == 0xC1){
+		spdk_thread_send_msg(cthread,pass_exec,&tcp_req->req);
+	}*/
+
+
 	/* If the qpair is not active, we need to abort the outstanding requests. */
 	if (tqpair->qpair.state != SPDK_NVMF_QPAIR_ACTIVE) {
 		if (tcp_req->state == TCP_REQUEST_STATE_NEED_BUFFER) {
@@ -2439,9 +2689,9 @@ nvmf_tcp_req_process(struct spdk_nvmf_tcp_transport *ttransport,
 		}
 		nvmf_tcp_req_set_state(tcp_req, TCP_REQUEST_STATE_COMPLETED);
 	}
-
 	/* The loop here is to allow for several back-to-back state changes. */
 	do {
+		//SPDK_NOTICELOG("DO: tcp_req:0x%x,%d\n",cmd->opc,tcp_req->state);
 		prev_state = tcp_req->state;
 
 		SPDK_DEBUGLOG(nvmf_tcp, "Request %p entering state %d on tqpair=%p\n", tcp_req, prev_state,
@@ -2449,15 +2699,17 @@ nvmf_tcp_req_process(struct spdk_nvmf_tcp_transport *ttransport,
 
 		switch (tcp_req->state) {
 		case TCP_REQUEST_STATE_FREE:
+			//SPDK_NOTICELOG("0:data:%.3s\n",req->data);
 			/* Some external code must kick a request into TCP_REQUEST_STATE_NEW
 			 * to escape this state. */
 			break;
 		case TCP_REQUEST_STATE_NEW:
+			//SPDK_NOTICELOG("1:data:%.3s\n",req->data);
 			spdk_trace_record(TRACE_TCP_REQUEST_STATE_NEW, 0, 0, (uintptr_t)tcp_req);
 
 			/* copy the cmd from the receive pdu */
 			tcp_req->cmd = tqpair->pdu_in_progress->hdr.capsule_cmd.ccsqe;
-
+			
 			if (spdk_unlikely(spdk_nvmf_request_get_dif_ctx(&tcp_req->req, &tcp_req->req.dif.dif_ctx))) {
 				tcp_req->req.dif_enabled = true;
 				tqpair->pdu_in_progress->dif_ctx = &tcp_req->req.dif.dif_ctx;
@@ -2492,6 +2744,7 @@ nvmf_tcp_req_process(struct spdk_nvmf_tcp_transport *ttransport,
 			STAILQ_INSERT_TAIL(&group->pending_buf_queue, &tcp_req->req, buf_link);
 			break;
 		case TCP_REQUEST_STATE_NEED_BUFFER:
+		//	SPDK_NOTICELOG("2:data:%.3s\n",req->data);
 			spdk_trace_record(TRACE_TCP_REQUEST_STATE_NEED_BUFFER, 0, 0, (uintptr_t)tcp_req);
 
 			assert(tcp_req->req.xfer != SPDK_NVME_DATA_NONE);
@@ -2547,11 +2800,12 @@ nvmf_tcp_req_process(struct spdk_nvmf_tcp_transport *ttransport,
 			nvmf_tcp_req_set_state(tcp_req, TCP_REQUEST_STATE_READY_TO_EXECUTE);
 			break;
 		case TCP_REQUEST_STATE_AWAITING_R2T_ACK:
+		//	SPDK_NOTICELOG("3:data:%.3s\n",req->data);
 			spdk_trace_record(TRACE_TCP_REQUEST_STATE_AWAIT_R2T_ACK, 0, 0, (uintptr_t)tcp_req);
 			/* The R2T completion or the h2c data incoming will kick it out of this state. */
 			break;
 		case TCP_REQUEST_STATE_TRANSFERRING_HOST_TO_CONTROLLER:
-
+		//	SPDK_NOTICELOG("4:data:%.3s\n",req->data);
 			spdk_trace_record(TRACE_TCP_REQUEST_STATE_TRANSFERRING_HOST_TO_CONTROLLER, 0, 0,
 					  (uintptr_t)tcp_req);
 			/* Some external code must kick a request into TCP_REQUEST_STATE_READY_TO_EXECUTE
@@ -2559,14 +2813,58 @@ nvmf_tcp_req_process(struct spdk_nvmf_tcp_transport *ttransport,
 			break;
 		case TCP_REQUEST_STATE_READY_TO_EXECUTE:
 			spdk_trace_record(TRACE_TCP_REQUEST_STATE_READY_TO_EXECUTE, 0, 0, (uintptr_t)tcp_req);
+			// 1. thread 선정
+			/*		
+			struct spdk_nvmf_qpair *qqpair;
+			struct spdk_nvmf_tcp_qpair *ttqpair;
+			struct spdk_nvmf_tcp_req *tcp_req2;
+				
+			if(cmd->opc == 0xC1){
+				if(th3 != NULL && pgroup->thread->id != th3->id){
+					req->qpair = qp3;
+					cthread = th3;
+					SPDK_NOTICELOG("3.th %d -> th %d\n",pgroup->thread->id, th3->id);
+				}
+				else if(th4 != NULL && pgroup->thread->id != th4->id){
+					req->qpair = qp4;
+					cthread = th4;
+					SPDK_NOTICELOG("4.th %d -> th %d\n",pgroup->thread->id, th4->id);
+				}
+				else{
+					req->qpair = qp5;
+					cthread = th5;
+					SPDK_NOTICELOG("4.th %d -> th %d\n",pgroup->thread->id, th4->id);
+				}
+				// 2. tcp_req 할당 + working_queue + free_queue, tcp_req 복제, 기존 tcp_req 돌려보내기 
+				qqpair = req->qpair;
+				ttqpair = SPDK_CONTAINEROF(qqpair, struct spdk_nvmf_tcp_qpair, qpair);
 
+				tcp_req2 = nvmf_tcp_req_get(ttqpair);
+				SPDK_NOTICELOG("1:%p,2:%p\n",tcp_req, tcp_req2);
+				memcpy(tcp_req2, tcp_req, sizeof(struct spdk_nvmf_tcp_req));
+				SPDK_NOTICELOG("1:%p,2:%p\n",tcp_req, tcp_req2);
+				req = &tcp_req2->req;
+				SPDK_NOTICELOG("5-2:data:%.3s\n",req->data);
+				nvmf_tcp_req_put(tqpair, tcp_req);
+				tcp_req = tcp_req2;
+				tqpair = ttqpair;
+				if (spdk_unlikely(tcp_req2->req.dif_enabled)) {
+					assert(tcp_req2->req.dif.elba_length >= tcp_req2->req.length);
+					tcp_req2->req.length = tcp_req2->req.dif.elba_length;
+				}
+				nvmf_tcp_req_set_state(tcp_req2, TCP_REQUEST_STATE_EXECUTING);
+				spdk_thread_send_msg(cthread,pass_exec, &tcp_req2->req);
+				pass_exec(&tcp_req2->req);
+			}
+			else{
+			*/
 			if (spdk_unlikely(tcp_req->req.dif_enabled)) {
 				assert(tcp_req->req.dif.elba_length >= tcp_req->req.length);
 				tcp_req->req.length = tcp_req->req.dif.elba_length;
 			}
-
 			nvmf_tcp_req_set_state(tcp_req, TCP_REQUEST_STATE_EXECUTING);
 			spdk_nvmf_request_exec(&tcp_req->req);
+			//}
 			break;
 		case TCP_REQUEST_STATE_EXECUTING:
 			spdk_trace_record(TRACE_TCP_REQUEST_STATE_EXECUTING, 0, 0, (uintptr_t)tcp_req);
@@ -2609,8 +2907,8 @@ nvmf_tcp_req_process(struct spdk_nvmf_tcp_transport *ttransport,
 			tcp_req->req.data = NULL;
 
 			nvmf_tcp_req_pdu_fini(tcp_req);
-
 			nvmf_tcp_req_put(tqpair, tcp_req);
+			//nvmf_tcp_req_put(tqpair, tcp_req);
 			break;
 		case TCP_REQUEST_NUM_STATES:
 		default:
@@ -2677,7 +2975,6 @@ nvmf_tcp_poll_group_add(struct spdk_nvmf_transport_poll_group *group,
 		SPDK_ERRLOG("Cannot init memory resource info for tqpair=%p\n", tqpair);
 		return -1;
 	}
-
 	tqpair->group = tgroup;
 	tqpair->state = NVME_TCP_QPAIR_STATE_INVALID;
 	TAILQ_INSERT_TAIL(&tgroup->qpairs, tqpair, link);
@@ -2779,6 +3076,7 @@ nvmf_tcp_poll_group_poll(struct spdk_nvmf_transport_poll_group *group)
 		nvmf_tcp_sock_process(tqpair);
 	}
 
+	//printf("nvmf_tcp_poll_group_poll:tqpair:%p\n",tqpair);
 	return rc;
 }
 

@@ -88,6 +88,13 @@ nvmf_ctrlr_write_zeroes_supported(struct spdk_nvmf_ctrlr *ctrlr)
 }
 
 static void
+nvmf_bdev_complete(struct spdk_bdev_io *bdev_io, bool success, void *cb_arg)
+{
+	SPDK_NOTICELOG("nvmf_bdev_complete\n");
+	spdk_bdev_free_io(bdev_io);
+}
+
+static void
 nvmf_bdev_ctrlr_complete_cmd(struct spdk_bdev_io *bdev_io, bool success,
 			     void *cb_arg)
 {
@@ -96,7 +103,7 @@ nvmf_bdev_ctrlr_complete_cmd(struct spdk_bdev_io *bdev_io, bool success,
 	int				first_sc = 0, first_sct = 0, second_sc = 0, second_sct = 0;
 	uint32_t			cdw0 = 0;
 	struct spdk_nvmf_request	*first_req = req->first_fused_req;
-
+	//SPDK_NOTICELOG("nvmf_bdev_ctrlr_complete_cmd!!!\n");
 	if (spdk_unlikely(first_req != NULL)) {
 		/* fused commands - get status for both operations */
 		struct spdk_nvme_cpl *fused_response = &first_req->rsp->nvme_cpl;
@@ -684,10 +691,12 @@ nvmf_bdev_ctrlr_nvme_passthru_io(struct spdk_bdev *bdev, struct spdk_bdev_desc *
 {
 	int rc;
 
+	///SPDK_NOTICELOG("___--_______\n");
 	rc = spdk_bdev_nvme_io_passthru(desc, ch, &req->cmd->nvme_cmd, req->data, req->length,
 					nvmf_bdev_ctrlr_complete_cmd, req);
 	if (spdk_unlikely(rc)) {
 		if (rc == -ENOMEM) {
+			printf("2\n");
 			nvmf_bdev_ctrl_queue_io(req, bdev, ch, nvmf_ctrlr_process_io_cmd_resubmit, req);
 			return SPDK_NVMF_REQUEST_EXEC_STATUS_ASYNCHRONOUS;
 		}
@@ -695,6 +704,11 @@ nvmf_bdev_ctrlr_nvme_passthru_io(struct spdk_bdev *bdev, struct spdk_bdev_desc *
 		req->rsp->nvme_cpl.status.sc = SPDK_NVME_SC_INVALID_OPCODE;
 		return SPDK_NVMF_REQUEST_EXEC_STATUS_COMPLETE;
 	}
+	/**추가 코드**/
+	//	req->cmd->nvme_cmd.opc = 0xD1;
+	//	spdk_bdev_nvme_io_passthru(desc, ch, &req->cmd->nvme_cmd, req->data, req->length,
+	//				nvmf_bdev_complete, req);
+	/*************/
 
 	return SPDK_NVMF_REQUEST_EXEC_STATUS_ASYNCHRONOUS;
 }

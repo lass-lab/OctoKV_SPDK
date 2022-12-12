@@ -593,7 +593,7 @@ retry:
 
 	/* Only enable zero copy for non-loopback sockets. */
 	enable_zcopy_user_opts = opts->zcopy && !sock_is_loopback(fd);
-
+	printf("sock_fd:%d@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n",fd);
 	sock = posix_sock_alloc(fd, enable_zcopy_user_opts && enable_zcopy_impl_opts);
 	if (sock == NULL) {
 		SPDK_ERRLOG("sock allocation failed\n");
@@ -656,9 +656,9 @@ posix_sock_accept(struct spdk_sock *_sock)
 		}
 	}
 #endif
-
 	/* Inherit the zero copy feature from the listen socket */
 	new_sock = posix_sock_alloc(fd, sock->zcopy);
+	printf("second new_sock:%d\n##########################\n",fd);
 	if (new_sock == NULL) {
 		close(fd);
 		return NULL;
@@ -1143,7 +1143,7 @@ posix_sock_group_impl_get_optimal(struct spdk_sock *_sock)
 {
 	struct spdk_posix_sock *sock = __posix_sock(_sock);
 	struct spdk_sock_group_impl *group_impl;
-
+	
 	if (sock->placement_id != -1) {
 		spdk_sock_map_lookup(&g_map, sock->placement_id, &group_impl);
 		return group_impl;
@@ -1253,7 +1253,7 @@ posix_sock_group_impl_add_sock(struct spdk_sock_group_impl *_group, struct spdk_
 	/* EPOLLERR is always on even if we don't set it, but be explicit for clarity */
 	event.events = EPOLLIN | EPOLLERR;
 	event.data.ptr = sock;
-
+	printf("sock->fd:%d,group->fd:%d\n",sock->fd,group->fd);
 	rc = epoll_ctl(group->fd, EPOLL_CTL_ADD, sock->fd, &event);
 #elif defined(SPDK_KEVENT)
 	struct kevent event;
@@ -1377,12 +1377,11 @@ posix_sock_group_impl_poll(struct spdk_sock_group_impl *_group, int max_events,
 	 * and will catch all of them in practice.
 	 */
 	int last_placement_id = -1;
-
 	TAILQ_FOREACH(psock, &group->socks_with_data, link) {
 		if (psock->zcopy && psock->placement_id >= 0 &&
 		    psock->placement_id != last_placement_id) {
 			struct pollfd pfd = {psock->fd, POLLIN | POLLERR, 0};
-
+			printf("___\n");
 			poll(&pfd, 1, 0);
 			last_placement_id = psock->placement_id;
 		}
@@ -1394,6 +1393,7 @@ posix_sock_group_impl_poll(struct spdk_sock_group_impl *_group, int max_events,
 	 * group. */
 	TAILQ_FOREACH_SAFE(sock, &_group->socks, link, tmp) {
 		rc = _sock_flush(sock);
+		//printf("2__\n");
 		if (rc) {
 			spdk_sock_abort_requests(sock);
 		}
@@ -1402,14 +1402,20 @@ posix_sock_group_impl_poll(struct spdk_sock_group_impl *_group, int max_events,
 	assert(max_events > 0);
 
 #if defined(SPDK_EPOLL)
+	//event가 발생한 fd들을 모아둔 구조체 배열,한번에 처리할 개수 제한, timeout=0이면 조사만
 	num_events = epoll_wait(group->fd, events, max_events, 0);
+	if(num_events != 0){
+		//printf("fd:%d\n",group->fd);
+		}
 #elif defined(SPDK_KEVENT)
 	num_events = kevent(group->fd, NULL, 0, events, max_events, &ts);
+	printf("4__\n");
 #endif
 
 	if (num_events == -1) {
 		return -1;
 	} else if (num_events == 0 && !TAILQ_EMPTY(&_group->socks)) {
+		//printf("5__\n");
 		sock = TAILQ_FIRST(&_group->socks);
 		psock = __posix_sock(sock);
 		/* poll() is called here to busy poll the queue associated with
@@ -1418,6 +1424,7 @@ posix_sock_group_impl_poll(struct spdk_sock_group_impl *_group, int max_events,
 		if (sock->opts.priority) {
 			struct pollfd pfd = {0, 0, 0};
 
+			printf("6__\n");
 			pfd.fd = psock->fd;
 			pfd.events = POLLIN | POLLERR;
 			poll(&pfd, 1, 0);
@@ -1428,10 +1435,12 @@ posix_sock_group_impl_poll(struct spdk_sock_group_impl *_group, int max_events,
 #if defined(SPDK_EPOLL)
 		sock = events[i].data.ptr;
 		psock = __posix_sock(sock);
+		//printf("7_-_\n");
 
 #ifdef SPDK_ZEROCOPY
 		if (events[i].events & EPOLLERR) {
 			rc = _sock_check_zcopy(sock);
+			//printf("8_-_\n");
 			/* If the socket was closed or removed from
 			 * the group in response to a send ack, don't
 			 * add it to the array here. */
@@ -1441,26 +1450,29 @@ posix_sock_group_impl_poll(struct spdk_sock_group_impl *_group, int max_events,
 		}
 #endif
 		if ((events[i].events & EPOLLIN) == 0) {
+			//printf("9_-_\n");
 			continue;
 		}
 
 #elif defined(SPDK_KEVENT)
 		sock = events[i].udata;
 		psock = __posix_sock(sock);
+		printf("10_-_\n");
 #endif
 
 		/* If the socket is not already in the list, add it now */
 		if (!psock->socket_has_data && !psock->pipe_has_data) {
 			TAILQ_INSERT_TAIL(&group->socks_with_data, psock, link);
+			//printf("11_-_\n");
 		}
 
 		psock->socket_has_data = true;
 	}
-
 	num_events = 0;
 
 	TAILQ_FOREACH_SAFE(psock, &group->socks_with_data, link, ptmp) {
 		if (num_events == max_events) {
+			printf("12__\n");
 			break;
 		}
 
@@ -1470,10 +1482,12 @@ posix_sock_group_impl_poll(struct spdk_sock_group_impl *_group, int max_events,
 			psock->socket_has_data = false;
 			psock->pipe_has_data = false;
 			TAILQ_REMOVE(&group->socks_with_data, psock, link);
+			printf("13__\n");
 			continue;
 		}
 
 		socks[num_events++] = &psock->base;
+		//printf("num_events:%d\n",num_events);
 	}
 
 	/* Cycle the has_data list so that each time we poll things aren't
@@ -1488,6 +1502,7 @@ posix_sock_group_impl_poll(struct spdk_sock_group_impl *_group, int max_events,
 	 */
 	if (psock != NULL) {
 		struct spdk_posix_sock *pa, *pc, *pd, *pf;
+		//printf("137__\n");
 
 		/* Capture pointers to the elements we need */
 		pd = psock;

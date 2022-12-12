@@ -316,7 +316,6 @@ rpc_nvmf_get_subsystems(struct spdk_jsonrpc_request *request,
 			return;
 		}
 	}
-
 	tgt = spdk_nvmf_get_tgt(req.tgt_name);
 	if (!tgt) {
 		spdk_jsonrpc_send_error_response(request, SPDK_JSONRPC_ERROR_INTERNAL_ERROR,
@@ -397,7 +396,6 @@ rpc_nvmf_create_subsystem(struct spdk_jsonrpc_request *request,
 	}
 	req->min_cntlid = NVMF_MIN_CNTLID;
 	req->max_cntlid = NVMF_MAX_CNTLID;
-
 	if (spdk_json_decode_object(params, rpc_subsystem_create_decoders,
 				    SPDK_COUNTOF(rpc_subsystem_create_decoders),
 				    req)) {
@@ -844,6 +842,7 @@ rpc_nvmf_subsystem_add_listener(struct spdk_jsonrpc_request *request,
 		nvmf_rpc_listener_ctx_free(ctx);
 		return;
 	}
+	printf("3.req->tgt:%s\n",ctx->tgt_name);
 
 	tgt = spdk_nvmf_get_tgt(ctx->tgt_name);
 	if (!tgt) {

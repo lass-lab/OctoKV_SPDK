@@ -421,13 +421,14 @@ _nvme_ns_cmd_rw(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
 	assert(rc != NULL);
 	assert(*rc == 0);
 
+	//SPDK_NOTICELOG("_nvme_ns_cmd_rw\n");
 	req = nvme_allocate_request(qpair, payload, lba_count * sector_size, lba_count * ns->md_size,
 				    cb_fn, cb_arg);
 	if (req == NULL) {
 		*rc = -ENOMEM;
 		return NULL;
 	}
-
+	//SPDK_NOTICELOG("_nvme_ns_cmd_rw\n");
 	req->payload_offset = payload_offset;
 	req->md_offset = md_offset;
 
@@ -472,8 +473,8 @@ _nvme_ns_cmd_rw(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
 							      req, apptag_mask, apptag, rc);
 		}
 	}
-
 	_nvme_ns_cmd_setup_request(ns, req, opc, lba, lba_count, io_flags, apptag_mask, apptag);
+	//SPDK_NOTICELOG("_nvme_ns_cmd_rw_fin\n");
 	return req;
 }
 
@@ -492,7 +493,7 @@ spdk_nvme_ns_cmd_compare(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
 	}
 
 	payload = NVME_PAYLOAD_CONTIG(buffer, NULL);
-
+	SPDK_NOTICELOG("spdk_nvme_ns_cmd_compare\n");
 	req = _nvme_ns_cmd_rw(ns, qpair, &payload, 0, 0, lba, lba_count, cb_fn, cb_arg,
 			      SPDK_NVME_OPC_COMPARE,
 			      io_flags, 0,
@@ -526,6 +527,7 @@ spdk_nvme_ns_cmd_compare_with_md(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair
 
 	payload = NVME_PAYLOAD_CONTIG(buffer, metadata);
 
+	SPDK_NOTICELOG("spdk_nvme_ns_cmd_compare_with_md\n");
 	req = _nvme_ns_cmd_rw(ns, qpair, &payload, 0, 0, lba, lba_count, cb_fn, cb_arg,
 			      SPDK_NVME_OPC_COMPARE,
 			      io_flags,
@@ -562,6 +564,7 @@ spdk_nvme_ns_cmd_comparev(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair
 
 	payload = NVME_PAYLOAD_SGL(reset_sgl_fn, next_sge_fn, cb_arg, NULL);
 
+	SPDK_NOTICELOG("spdk_nvme_ns_cmd_comparev\n");
 	req = _nvme_ns_cmd_rw(ns, qpair, &payload, 0, 0, lba, lba_count, cb_fn, cb_arg,
 			      SPDK_NVME_OPC_COMPARE,
 			      io_flags, 0, 0, true, &rc);
@@ -598,6 +601,7 @@ spdk_nvme_ns_cmd_comparev_with_md(struct spdk_nvme_ns *ns, struct spdk_nvme_qpai
 
 	payload = NVME_PAYLOAD_SGL(reset_sgl_fn, next_sge_fn, cb_arg, metadata);
 
+	SPDK_NOTICELOG("spdk_nvme_ns_cmd_comparev_with_md\n");
 	req = _nvme_ns_cmd_rw(ns, qpair, &payload, 0, 0, lba, lba_count, cb_fn, cb_arg,
 			      SPDK_NVME_OPC_COMPARE, io_flags, apptag_mask, apptag, true, &rc);
 	if (req != NULL) {
@@ -625,6 +629,7 @@ spdk_nvme_ns_cmd_read(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair, vo
 		return -EINVAL;
 	}
 
+	SPDK_NOTICELOG("spdk_nvme_ns_cmd_read\n");
 	payload = NVME_PAYLOAD_CONTIG(buffer, NULL);
 
 	req = _nvme_ns_cmd_rw(ns, qpair, &payload, 0, 0, lba, lba_count, cb_fn, cb_arg, SPDK_NVME_OPC_READ,
@@ -658,6 +663,7 @@ spdk_nvme_ns_cmd_read_with_md(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *q
 
 	payload = NVME_PAYLOAD_CONTIG(buffer, metadata);
 
+	//SPDK_NOTICELOG("spdk_nvme_ns_cmd_comparev\n");
 	req = _nvme_ns_cmd_rw(ns, qpair, &payload, 0, 0, lba, lba_count, cb_fn, cb_arg, SPDK_NVME_OPC_READ,
 			      io_flags,
 			      apptag_mask, apptag, false, &rc);
@@ -693,6 +699,7 @@ spdk_nvme_ns_cmd_readv(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
 
 	payload = NVME_PAYLOAD_SGL(reset_sgl_fn, next_sge_fn, cb_arg, NULL);
 
+	SPDK_NOTICELOG("spdk_nvme_ns_cmd_comparev\n");
 	req = _nvme_ns_cmd_rw(ns, qpair, &payload, 0, 0, lba, lba_count, cb_fn, cb_arg, SPDK_NVME_OPC_READ,
 			      io_flags, 0, 0, true, &rc);
 	if (req != NULL) {
@@ -728,6 +735,7 @@ spdk_nvme_ns_cmd_readv_with_md(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *
 
 	payload = NVME_PAYLOAD_SGL(reset_sgl_fn, next_sge_fn, cb_arg, metadata);
 
+	//SPDK_NOTICELOG("spdk_nvme_ns_cmd_comparev\n");
 	req = _nvme_ns_cmd_rw(ns, qpair, &payload, 0, 0, lba, lba_count, cb_fn, cb_arg, SPDK_NVME_OPC_READ,
 			      io_flags, apptag_mask, apptag, true, &rc);
 	if (req != NULL) {
@@ -756,7 +764,7 @@ spdk_nvme_ns_cmd_write(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
 	}
 
 	payload = NVME_PAYLOAD_CONTIG(buffer, NULL);
-
+	SPDK_NOTICELOG("spdk_nvme_ns_cmd_write\n");
 	req = _nvme_ns_cmd_rw(ns, qpair, &payload, 0, 0, lba, lba_count, cb_fn, cb_arg, SPDK_NVME_OPC_WRITE,
 			      io_flags, 0, 0, false, &rc);
 	if (req != NULL) {
@@ -811,6 +819,7 @@ nvme_ns_cmd_zone_append_with_md(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair 
 
 	payload = NVME_PAYLOAD_CONTIG(buffer, metadata);
 
+	SPDK_NOTICELOG("spdk_nvme_ns_cmd_comparev\n");
 	req = _nvme_ns_cmd_rw(ns, qpair, &payload, 0, 0, zslba, lba_count, cb_fn, cb_arg,
 			      SPDK_NVME_OPC_ZONE_APPEND,
 			      io_flags, apptag_mask, apptag, false, &rc);
@@ -864,6 +873,7 @@ nvme_ns_cmd_zone_appendv_with_md(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair
 
 	payload = NVME_PAYLOAD_SGL(reset_sgl_fn, next_sge_fn, cb_arg, metadata);
 
+	SPDK_NOTICELOG("spdk_nvme_ns_cmd_comparev\n");
 	req = _nvme_ns_cmd_rw(ns, qpair, &payload, 0, 0, zslba, lba_count, cb_fn, cb_arg,
 			      SPDK_NVME_OPC_ZONE_APPEND,
 			      io_flags, apptag_mask, apptag, true, &rc);
@@ -911,11 +921,14 @@ spdk_nvme_ns_cmd_write_with_md(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *
 
 	payload = NVME_PAYLOAD_CONTIG(buffer, metadata);
 
+	//SPDK_NOTICELOG("spdk_nvme_ns_cmd_comparev\n");
 	req = _nvme_ns_cmd_rw(ns, qpair, &payload, 0, 0, lba, lba_count, cb_fn, cb_arg, SPDK_NVME_OPC_WRITE,
 			      io_flags, apptag_mask, apptag, false, &rc);
 	if (req != NULL) {
+		//SPDK_NOTICELOG("spdk_nvme_ns_cmd_comparev-nvme_qpair_submit_request\n");
 		return nvme_qpair_submit_request(qpair, req);
 	} else {
+		//SPDK_NOTICELOG("spdk_nvme_ns_cmd_comparev-nvme_ns_map_failure_rc\n");
 		return nvme_ns_map_failure_rc(lba_count,
 					      ns->sectors_per_max_io,
 					      ns->sectors_per_stripe,
@@ -945,6 +958,7 @@ spdk_nvme_ns_cmd_writev(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
 
 	payload = NVME_PAYLOAD_SGL(reset_sgl_fn, next_sge_fn, cb_arg, NULL);
 
+	SPDK_NOTICELOG("spdk_nvme_ns_cmd_writev\n");
 	req = _nvme_ns_cmd_rw(ns, qpair, &payload, 0, 0, lba, lba_count, cb_fn, cb_arg, SPDK_NVME_OPC_WRITE,
 			      io_flags, 0, 0, true, &rc);
 	if (req != NULL) {
@@ -980,6 +994,7 @@ spdk_nvme_ns_cmd_writev_with_md(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair 
 
 	payload = NVME_PAYLOAD_SGL(reset_sgl_fn, next_sge_fn, cb_arg, metadata);
 
+	//SPDK_NOTICELOG("spdk_nvme_ns_cmd_comparev\n");
 	req = _nvme_ns_cmd_rw(ns, qpair, &payload, 0, 0, lba, lba_count, cb_fn, cb_arg, SPDK_NVME_OPC_WRITE,
 			      io_flags, apptag_mask, apptag, true, &rc);
 	if (req != NULL) {

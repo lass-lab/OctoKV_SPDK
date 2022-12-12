@@ -1,3 +1,4 @@
+
 /*-
  *   BSD LICENSE
  *
@@ -2817,6 +2818,7 @@ nvme_ctrlr_async_event_cb(void *arg, const struct spdk_nvme_cpl *cpl)
 	struct nvme_async_event_request	*aer = arg;
 	struct spdk_nvme_ctrlr		*ctrlr = aer->ctrlr;
 
+	SPDK_NOTICELOG("nvme_ctrlr_async_event_cb_start\n");
 	if (cpl->status.sct == SPDK_NVME_SCT_GENERIC &&
 	    cpl->status.sc == SPDK_NVME_SC_ABORTED_SQ_DELETION) {
 		/*
@@ -2852,7 +2854,9 @@ nvme_ctrlr_async_event_cb(void *arg, const struct spdk_nvme_cpl *cpl)
 	 * Repost another asynchronous event request to replace the one
 	 *  that just completed.
 	 */
+	SPDK_NOTICELOG("nvme_ctrlr_async_event_cb_before\n");
 	if (nvme_ctrlr_construct_and_submit_aer(ctrlr, aer)) {
+	SPDK_NOTICELOG("nvme_ctrlr_async_event_cb_after\n");
 		/*
 		 * We can't do anything to recover from a failure here,
 		 * so just print a warning message and leave the AER unsubmitted.
@@ -2868,12 +2872,13 @@ nvme_ctrlr_construct_and_submit_aer(struct spdk_nvme_ctrlr *ctrlr,
 	struct nvme_request *req;
 
 	aer->ctrlr = ctrlr;
+	SPDK_NOTICELOG("nvme_ctrlr_construct_and_submit_aer\n");
 	req = nvme_allocate_request_null(ctrlr->adminq, nvme_ctrlr_async_event_cb, aer);
 	aer->req = req;
 	if (req == NULL) {
 		return -1;
 	}
-
+	SPDK_NOTICELOG("__nvme_ctrlr_construct_and_submit_aer\n");
 	req->cmd.opc = SPDK_NVME_OPC_ASYNC_EVENT_REQUEST;
 	return nvme_ctrlr_submit_admin_request(ctrlr, req);
 }
@@ -2898,9 +2903,11 @@ nvme_ctrlr_configure_aer_done(void *arg, const struct spdk_nvme_cpl *cpl)
 
 	for (i = 0; i < ctrlr->num_aers; i++) {
 		aer = &ctrlr->aer[i];
+		printf("aer\n");
 		rc = nvme_ctrlr_construct_and_submit_aer(ctrlr, aer);
 		if (rc) {
 			NVME_CTRLR_ERRLOG(ctrlr, "nvme_ctrlr_construct_and_submit_aer failed!\n");
+			printf("nvme_ctrlr_construct_and_submit_aer failed!\n");
 			nvme_ctrlr_set_state(ctrlr, NVME_CTRLR_STATE_ERROR, NVME_TIMEOUT_INFINITE);
 			return;
 		}
@@ -2939,7 +2946,7 @@ nvme_ctrlr_configure_aer(struct spdk_nvme_ctrlr *ctrlr)
 
 	nvme_ctrlr_set_state(ctrlr, NVME_CTRLR_STATE_WAIT_FOR_CONFIGURE_AER,
 			     ctrlr->opts.admin_timeout_ms);
-
+	printf("nvme_ctrlr_configure_aer\n");
 	rc = nvme_ctrlr_cmd_set_async_event_config(ctrlr, config,
 			nvme_ctrlr_configure_aer_done,
 			ctrlr);
@@ -3696,6 +3703,7 @@ int
 nvme_ctrlr_submit_admin_request(struct spdk_nvme_ctrlr *ctrlr,
 				struct nvme_request *req)
 {
+	printf("here.....\n");
 	return nvme_qpair_submit_request(ctrlr->adminq, req);
 }
 
@@ -3729,7 +3737,7 @@ nvme_ctrlr_keep_alive(struct spdk_nvme_ctrlr *ctrlr)
 
 	cmd = &req->cmd;
 	cmd->opc = SPDK_NVME_OPC_KEEP_ALIVE;
-
+	printf("nvme_ctrlr_keep_alive\n");
 	rc = nvme_ctrlr_submit_admin_request(ctrlr, req);
 	if (rc != 0) {
 		NVME_CTRLR_ERRLOG(ctrlr, "Submitting Keep Alive failed\n");

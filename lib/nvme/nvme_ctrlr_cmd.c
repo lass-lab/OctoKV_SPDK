@@ -47,6 +47,7 @@ spdk_nvme_ctrlr_io_cmd_raw_no_payload_build(struct spdk_nvme_ctrlr *ctrlr,
 	}
 
 	memset(&payload, 0, sizeof(payload));
+	SPDK_NOTICELOG("spdk_nvme_ctrlr_io_cmd_raw_no_payload_build\n");
 	req = nvme_allocate_request(qpair, &payload, 0, 0, cb_fn, cb_arg);
 
 	if (req == NULL) {
@@ -100,6 +101,7 @@ spdk_nvme_ctrlr_cmd_io_raw_with_md(struct spdk_nvme_ctrlr *ctrlr,
 		md_len =  len / ns->sector_size * ns->md_size;
 	}
 
+	SPDK_NOTICELOG("spdk_nvme_ctrlr_cmd_io_raw_with_md\n");
 	req = nvme_allocate_request(qpair, &payload, len, md_len, cb_fn, cb_arg);
 	if (req == NULL) {
 		return -ENOMEM;

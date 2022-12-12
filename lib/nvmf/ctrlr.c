@@ -46,6 +46,9 @@
 #include "spdk/version.h"
 #include "spdk/log.h"
 #include "spdk_internal/usdt.h"
+#include "spdk/nvmf.h"
+#include "spdk/tree.h"
+#include "spdk_internal/thread.h"
 
 #define MIN_KEEP_ALIVE_TIMEOUT_IN_MS 10000
 #define NVMF_DISC_KATO_IN_MS 120000
@@ -63,10 +66,104 @@
 /*
  * Support for custom admin command handlers
  */
+
+int eee =0;
+int tempp = 0;
+int www = 0;
+struct spdk_nvmf_poll_group *g_group;
+struct spdk_nvmf_poll_group *g_group2;
+struct spdk_nvmf_qpair *g_qpair;
+struct spdk_nvmf_qpair *g_qpair2;
 struct spdk_nvmf_custom_admin_cmd {
 	spdk_nvmf_custom_cmd_hdlr hdlr;
 	uint32_t nsid; /* nsid to forward */
 };
+
+#define SPDK_MAX_THREAD_NAME_LEN 256
+
+
+enum spdk_thread_state {
+	/* The thread is pocessing poller and message by spdk_thread_poll(). */
+	SPDK_THREAD_STATE_RUNNING,
+
+	/* The thread is in the process of termination. It reaps unregistering
+	 * poller are releasing I/O channel.
+	 */
+	SPDK_THREAD_STATE_EXITING,
+
+	/* The thread is exited. It is ready to call spdk_thread_destroy(). */
+	SPDK_THREAD_STATE_EXITED,
+};
+
+struct spdk_thread {
+	uint64_t			tsc_last;
+	struct spdk_thread_stats	stats;
+	/*
+	 * Contains pollers actively running on this thread.  Pollers
+	 *  are run round-robin. The thread takes one poller from the head
+	 *  of the ring, executes it, then puts it back at the tail of
+	 *  the ring.
+	 */
+	TAILQ_HEAD(active_pollers_head, spdk_poller)	active_pollers;
+	/**
+	 * Contains pollers running on this thread with a periodic timer.
+	 */
+	RB_HEAD(timed_pollers_tree, spdk_poller)	timed_pollers;
+	struct spdk_poller				*first_timed_poller;
+	/*
+	 * Contains paused pollers.  Pollers on this queue are waiting until
+	 * they are resumed (in which case they're put onto the active/timer
+	 * queues) or unregistered.
+	 */
+	TAILQ_HEAD(paused_pollers_head, spdk_poller)	paused_pollers;
+	struct spdk_ring		*messages;
+	int				msg_fd;
+	SLIST_HEAD(, spdk_msg)		msg_cache;
+	size_t				msg_cache_count;
+	spdk_msg_fn			critical_msg;
+	uint64_t			id;
+	enum spdk_thread_state		state;
+	int				pending_unregister_count;
+
+	RB_HEAD(io_channel_tree, spdk_io_channel)	io_channels;
+	TAILQ_ENTRY(spdk_thread)			tailq;
+
+	char				name[SPDK_MAX_THREAD_NAME_LEN + 1];
+	struct spdk_cpuset		cpumask;
+	uint64_t			exit_timeout_tsc;
+
+	/* Indicates whether this spdk_thread currently runs in interrupt. */
+	bool				in_interrupt;
+	struct spdk_fd_group		*fgrp;
+
+	/* User context allocated at the end */
+	uint8_t				ctx[0];
+};
+
+/*
+struct spdk_thread *th1 = NULL;
+struct spdk_thread *th2 = NULL;
+struct spdk_thread *th3 = NULL;
+struct spdk_thread *th4 = NULL;
+struct spdk_thread *th5 = NULL;
+struct spdk_thread *th6 = NULL;
+struct spdk_thread *th7 = NULL;
+struct spdk_thread *th8 = NULL;
+struct spdk_thread *th9 = NULL;
+struct spdk_thread *th10 = NULL;
+struct spdk_thread *th11 = NULL;
+struct spdk_nvmf_qpair *qp1=NULL;
+struct spdk_nvmf_qpair *qp2=NULL;
+struct spdk_nvmf_qpair *qp3=NULL;
+struct spdk_nvmf_qpair *qp4=NULL;
+struct spdk_nvmf_qpair *qp5=NULL;
+struct spdk_nvmf_qpair *qp6=NULL;
+struct spdk_nvmf_qpair *qp7=NULL;
+struct spdk_nvmf_qpair *qp8=NULL;
+struct spdk_nvmf_qpair *qp9=NULL;
+struct spdk_nvmf_qpair *qp10=NULL;
+struct spdk_nvmf_qpair *qp11=NULL;
+struct spdk_thread *thread5 = NULL;*/
 
 static struct spdk_nvmf_custom_admin_cmd g_nvmf_custom_admin_cmd_hdlrs[SPDK_NVME_MAX_OPC + 1];
 
@@ -3086,6 +3183,7 @@ static inline int
 nvmf_ctrlr_async_event_notification(struct spdk_nvmf_ctrlr *ctrlr,
 				    union spdk_nvme_async_event_completion *event)
 {
+	SPDK_NOTICELOG("nvmf_ctrlr_async_event_notification\n");
 	struct spdk_nvmf_request *req;
 	struct spdk_nvme_cpl *rsp;
 
@@ -3645,6 +3743,85 @@ nvmf_ctrlr_process_io_cmd(struct spdk_nvmf_request *req)
 	struct spdk_nvme_cpl *response = &req->rsp->nvme_cpl;
 	struct spdk_nvmf_subsystem_pg_ns_info *ns_info;
 	enum spdk_nvme_ana_state ana_state;
+	
+	/*************additional code*******************/
+	struct spdk_nvmf_subsystem_pg_ns_info *ns_info_o;
+	struct spdk_nvmf_ctrlr *ctrlr_o;
+	struct spdk_nvmf_poll_group *group_o;
+
+	/**************additional code******************/
+	//SPDK_NOTICELOG("***nvmf_ctrlr_process_io_cmd\n");	
+	char strr[10] = "nvmf_tgt";
+	struct spdk_nvmf_poll_group *group2;
+	struct spdk_nvmf_qpair *qpair=req->qpair;
+	struct spdk_nvmf_qpair *qpair2;
+	struct spdk_nvmf_tgt *tgt;
+	
+	int tttmp = 0;
+	tgt = qpair->transport->tgt;
+
+
+	/*
+	if(tempp == 0){
+		pthread_mutex_lock(&tgt->mutex);
+		TAILQ_FOREACH(group2, &tgt->poll_groups, link){
+			if(tttmp != 0 && group != group2 && g_group == NULL){
+				g_group = group2;
+				break;
+			}
+			tttmp++;
+		}
+		TAILQ_FOREACH(qpair2, &g_group->qpairs, link){
+			if(qpair != qpair2){
+				g_qpair = qpair;
+				break;
+			}
+		}
+		tempp = 1;
+		pthread_mutex_unlock(&tgt->mutex);
+	}*/
+
+
+	/*
+	if(tempp == 0 ){
+		pthread_mutex_lock(&tgt->mutex);	
+		TAILQ_FOREACH(group2, &tgt->poll_groups, link){
+			if(tttmp >3 && group != group2 && g_group == NULL){
+				g_group = group2;
+				//break;
+			}
+			else if(tttmp >3 && group != group2){
+				g_group2 = group2;
+				break;
+			}
+			tttmp++;
+		}
+		TAILQ_FOREACH(qpair2, &g_group->qpairs, link){
+			if(qpair != qpair2){
+				g_qpair = qpair2;
+				break;
+			}
+		}
+		
+		TAILQ_FOREACH(qpair2,&g_group2->qpairs,link){
+			if(qpair != qpair2){
+				g_qpair2 = qpair2;
+				break;
+			}
+		}
+		tempp = 1;
+		pthread_mutex_unlock(&tgt->mutex);	
+	}*/
+	//if(qpair2 !=NULL){
+	//	ctrlr = qpair2->ctrlr;
+	//	group = group2;
+	//	req->qpair = qpair2;
+	//	req->poller = qpair2->group->poller;
+	//	group = req->qpair->group;
+//	}
+
+
+	/**********************************************/
 
 	/* pre-set response details for this command */
 	response->status.sc = SPDK_NVME_SC_SUCCESS;
@@ -3687,16 +3864,78 @@ nvmf_ctrlr_process_io_cmd(struct spdk_nvmf_request *req)
 
 	/* scan-build falsely reporting dereference of null pointer */
 	assert(group != NULL && group->sgroups != NULL);
-	ns_info = &group->sgroups[ctrlr->subsys->id].ns_info[nsid - 1];
+	//추가//
+	/*
+	struct spdk_io_channel *ch_origin;
+	if(tempp == 1){
+		ns_info = &g_group->sgroups[g_qpair->ctrlr->subsys->id].ns_info[nsid-1];
+	}
+	else{*/
+		ns_info = &group->sgroups[ctrlr->subsys->id].ns_info[nsid - 1];
+	//}
+	/*
+	if(tempp == 1){
+		pthread_mutex_lock(&tgt->mutex);	
+		if(www < 50){
+			www++;
+			pthread_mutex_unlock(&tgt->mutex);	
+			group_o = g_group;
+			ctrlr_o = g_qpair->ctrlr;
+			ns_info = &group_o->sgroups[ctrlr_o->subsys->id].ns_info[nsid-1];
+			//ns_info_o = &group->sgroups[ctrlr->subsys->id].ns_info[nsid-1];
+			//ch_origin = ns_info_o->channel;
+		}
+		else{
+			www++;
+			if(www > 127)
+				www = 0;
+			pthread_mutex_unlock(&tgt->mutex);	
+			ns_info = &group->sgroups[ctrlr->subsys->id].ns_info[nsid-1];
+			//group_o = g_group2;
+			//ctrlr_o = g_qpair2->ctrlr;
+			//ns_info = &group->sgroups[ctrlr->subsys->id].ns_info[nsid - 1];
+			//ch_origin = ns_info->channel;	
+		}
+		//ns_info = &group_o->sgroups[ctrlr_o->subsys->id].ns_info[nsid - 1];
+		//ch = ns_info->channel;	
+	}
+	else{
+		ns_info = &group->sgroups[ctrlr->subsys->id].ns_info[nsid - 1];
+	}*/
+	//ch_origin = ns_info->channel;
+
 	if (nvmf_ns_reservation_request_check(ns_info, ctrlr, req)) {
 		SPDK_DEBUGLOG(nvmf, "Reservation Conflict for nsid %u, opcode %u\n",
 			      cmd->nsid, cmd->opc);
 		return SPDK_NVMF_REQUEST_EXEC_STATUS_COMPLETE;
 	}
+	//**********check용**********//
+	/*
+	if(qpair2 !=NULL){
+		//ctrlr_o = qpair2->ctrlr;
+		group_o = group2;
+		ctrlr_o = qpair2->ctrlr;
+		ns_info_o = &group_o->sgroups[ctrlr->subsys->id].ns_info[nsid - 1];
+	}
+	else{
+		ns_info_o = &group->sgroups[ctrlr->subsys->id].ns_info[nsid - 1];
+	}*/
+//	ch_origin = ns_info->channel;
 
 	bdev = ns->bdev;
 	desc = ns->desc;
+	//pthread_mutex_lock(&tgt->mutex);	
 	ch = ns_info->channel;
+	/*if(eee %2 == 1){
+		ch = ns_info->channel;
+		eee++;
+	}
+	else{
+		ch = ns_info_o->channel;
+		eee++;
+	}*/
+	//pthread_mutex_unlock(&tgt->mutex);	
+	//printf("ori channel:%p,channel:%p\n",ch_origin, ch);	
 
 	if (spdk_unlikely(cmd->fuse & SPDK_NVME_CMD_FUSE_MASK)) {
 		return nvmf_ctrlr_process_io_fused_cmd(req, bdev, desc, ch);
@@ -3885,9 +4124,10 @@ spdk_nvmf_request_complete(struct spdk_nvmf_request *req)
 
 	if (spdk_likely(qpair->group->thread == spdk_get_thread())) {
 		_nvmf_request_complete(req);
+		//printf("same thread\n");
 	} else {
-		spdk_thread_send_msg(qpair->group->thread,
-				     _nvmf_request_complete, req);
+		spdk_thread_send_msg(qpair->group->thread,_nvmf_request_complete, req);
+		//printf("different thread\n");
 	}
 
 	return 0;
@@ -3994,9 +4234,48 @@ static bool nvmf_check_subsystem_active(struct spdk_nvmf_request *req)
 }
 
 void
+pass_exec(void *ctx){
+	struct spdk_nvmf_request *req = ctx;
+	struct spdk_nvme_cmd *cmd = &req->cmd->nvme_cmd;
+	SPDK_NOTICELOG("pass_exec_opcode:0x%x\n",cmd->opc);
+	spdk_nvmf_request_exec2(req);
+}
+
+void
+spdk_nvmf_request_exec2(struct spdk_nvmf_request *req)
+{
+	struct spdk_nvmf_qpair *qpair = req->qpair;
+	enum spdk_nvmf_request_exec_status status;
+	SPDK_NOTICELOG("exec2:%d,qid:%d\n",nvmf_qpair_is_admin_queue(qpair),qpair->qid);
+	if (SPDK_DEBUGLOG_FLAG_ENABLED("nvmf")) {
+		spdk_nvme_print_command(qpair->qid, &req->cmd->nvme_cmd);
+	}
+
+	/* Place the request on the outstanding list so we can keep track of it */
+	nvmf_add_to_outstanding_queue(req);
+	//printf("qpair->qid:%d\n",qpair->qid);
+	/*
+	if (spdk_unlikely(req->cmd->nvmf_cmd.opcode == SPDK_NVME_OPC_FABRIC)) {
+		status = nvmf_ctrlr_process_fabrics_cmd(req);
+	} else if (spdk_unlikely(nvmf_qpair_is_admin_queue(qpair))) {
+		SPDK_NOTICELOG("nvmf_qpair_is_admin_queue_가 틀림!:%d\n",qpair->qid);
+		status = nvmf_ctrlr_process_admin_cmd(req);
+	} else {
+	*/
+		status = nvmf_ctrlr_process_io_cmd(req);
+	
+	//}
+	if (status == SPDK_NVMF_REQUEST_EXEC_STATUS_COMPLETE) {
+		_nvmf_request_complete(req);
+	}
+}
+
+void
 spdk_nvmf_request_exec(struct spdk_nvmf_request *req)
 {
 	struct spdk_nvmf_qpair *qpair = req->qpair;
+	struct spdk_nvmf_poll_group *group = qpair->group;
+	struct spdk_thread *cthread = NULL;
 	enum spdk_nvmf_request_exec_status status;
 
 	if (!spdk_nvmf_using_zcopy(req->zcopy_phase)) {
@@ -4011,12 +4290,16 @@ spdk_nvmf_request_exec(struct spdk_nvmf_request *req)
 
 	/* Place the request on the outstanding list so we can keep track of it */
 	nvmf_add_to_outstanding_queue(req);
+	struct spdk_nvme_cmd *cmd = &req->cmd->nvme_cmd;
 
 	if (spdk_unlikely(req->cmd->nvmf_cmd.opcode == SPDK_NVME_OPC_FABRIC)) {
+		//SPDK_NOTICELOG("1.:%d\n",qpair->qid);
 		status = nvmf_ctrlr_process_fabrics_cmd(req);
 	} else if (spdk_unlikely(nvmf_qpair_is_admin_queue(qpair))) {
+		//SPDK_NOTICELOG("nvmf_qpair_is_admin_queue_가 틀림!:%d\n",qpair->qid);
 		status = nvmf_ctrlr_process_admin_cmd(req);
 	} else {
+		//`SPDK_NOTICELOG("3.:%d\n",qpair->qid);
 		status = nvmf_ctrlr_process_io_cmd(req);
 	}
 

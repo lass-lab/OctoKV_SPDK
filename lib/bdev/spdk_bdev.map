@@ -2,6 +2,8 @@
 	global:
 
 	# Public functions in bdev.h
+	bdev_channel_get_io;
+
 	spdk_bdev_get_opts;
 	spdk_bdev_set_opts;
 	spdk_bdev_wait_for_examine;
@@ -86,6 +88,7 @@
 	spdk_bdev_abort;
 	spdk_bdev_nvme_admin_passthru;
 	spdk_bdev_nvme_io_passthru;
+	spdk_bdev_nvme_io_passthru2;
 	spdk_bdev_nvme_io_passthru_md;
 	spdk_bdev_free_io;
 	spdk_bdev_queue_io_wait;

@@ -57,6 +57,18 @@
 #define SPDK_MAX_POLLER_NAME_LEN	256
 #define SPDK_MAX_THREAD_NAME_LEN	256
 
+struct spdk_thread *thread1=NULL;
+struct spdk_thread *thread2=NULL;
+struct spdk_thread *thread3=NULL;
+struct spdk_thread *thread4=NULL;
+struct spdk_thread *thread5=NULL;
+struct spdk_thread *thread6=NULL;
+struct spdk_thread *thread7=NULL;
+struct spdk_thread *thread8=NULL;
+
+
+int ttal = 0;
+
 enum spdk_poller_state {
 	/* The poller is registered with a thread but not currently executing its fn. */
 	SPDK_POLLER_STATE_WAITING,
@@ -211,6 +223,7 @@ struct spdk_msg {
 };
 
 #define SPDK_MSG_MEMPOOL_CACHE_SIZE	1024
+//SPDK_MSG_MEMPOOL_CACHE_SIZE
 static struct spdk_mempool *g_spdk_msg_mempool = NULL;
 
 static TAILQ_HEAD(, spdk_thread) g_threads = TAILQ_HEAD_INITIALIZER(g_threads);
@@ -498,7 +511,31 @@ spdk_thread_create(const char *name, struct spdk_cpuset *cpumask)
 	}
 
 	thread->state = SPDK_THREAD_STATE_RUNNING;
-	printf("create_thread!!!**************************************************************\n");
+
+	if(g_thread_count == 2 && thread->id == 1){
+		thread1 = thread;
+	}
+	else if(g_thread_count == 3 && thread->id == 2){
+		thread2 = thread;
+	}
+	else if(g_thread_count == 4 && thread->id == 3){
+		thread3 = thread;
+	}
+	else if(g_thread_count == 5){
+		thread4 = thread;
+	}
+	else if(g_thread_count == 6){
+		thread5 = thread;
+	}
+	else if(g_thread_count == 7){
+		thread6 = thread;
+	}
+	else if(g_thread_count == 8){
+		thread7 = thread;
+	}
+	else if(g_thread_count == 9){
+		thread8 = thread;
+	}
 	return thread;
 }
 
@@ -661,13 +698,16 @@ spdk_thread_get_from_ctx(void *ctx)
 	return SPDK_CONTAINEROF(ctx, struct spdk_thread, ctx);
 }
 
-static inline uint32_t
+//static inline uint32_t static 
+int
 msg_queue_run_batch(struct spdk_thread *thread, uint32_t max_msgs)
 {
 	unsigned count, i;
 	void *messages[SPDK_MSG_BATCH_SIZE];
 	uint64_t notify = 1;
 	int rc;
+	struct spdk_thread *thread_now = spdk_get_thread();
+	//	SPDK_NOTICELOG("msg_queue_run_batch: thread:%d, thread_now:%d\n",thread->id, thread_now->id);
 
 #ifdef DEBUG
 	/*
@@ -683,11 +723,16 @@ msg_queue_run_batch(struct spdk_thread *thread, uint32_t max_msgs)
 	} else {
 		max_msgs = SPDK_MSG_BATCH_SIZE;
 	}
-
 	count = spdk_ring_dequeue(thread->messages, messages, max_msgs);
+	
+	if(count > 0){
+		//SPDK_NOTICELOG("111111\n",count,thread->id);
+	}
 	if (spdk_unlikely(thread->in_interrupt) &&
 	    spdk_ring_count(thread->messages) != 0) {
+		//SPDK_NOTICELOG("msg_queue_run_batch-count:%d,thread:%d\n",count,thread->id);
 		rc = write(thread->msg_fd, &notify, sizeof(notify));
+		//SPDK_NOTICELOG("msg_queue_run_batch-count:%d,thread:%d\n",count,thread->id);
 		if (rc < 0) {
 			SPDK_ERRLOG("failed to notify msg_queue: %s.\n", spdk_strerror(errno));
 		}
@@ -700,20 +745,42 @@ msg_queue_run_batch(struct spdk_thread *thread, uint32_t max_msgs)
 		struct spdk_msg *msg = messages[i];
 
 		assert(msg != NULL);
+		
+		if(count != 0){
+			//SPDK_NOTICELOG("22222222\n");
+			//SPDK_NOTICELOG("count:%d,thread:%d,msg_cache_count:%d,MEMPOOL:%d\n",count,thread->id,thread->msg_cache_count,SPDK_MSG_MEMPOOL_CACHE_SIZE);
+		}
 		msg->fn(msg->arg);
+		
+			//SPDK_NOTICELOG("33333333\n");
 
 		if (thread->msg_cache_count < SPDK_MSG_MEMPOOL_CACHE_SIZE) {
 			/* Insert the messages at the head. We want to re-use the hot
 			 * ones. */
+			//SPDK_NOTICELOG("thread:%d 에서 msg_queue_run_batch thread:%d, before:%d\n",thread_now->id,thread->id,thread->msg_cache_count);
 			SLIST_INSERT_HEAD(&thread->msg_cache, msg, link);
 			thread->msg_cache_count++;
+			//SPDK_NOTICELOG("thread:%d 에서 msg_queue_run_batch thread:%d, after:%d\n",thread_now->id,thread->id,thread->msg_cache_count);
 		} else {
 			spdk_mempool_put(g_spdk_msg_mempool, msg);
 		}
+		//SPDK_NOTICELOG("44444444\n");
 	}
 
 	return count;
 }
+/*
+int msg_queue_run(struct spdk_thread *thread, uint32_t max_msgs)
+{
+		if (thread->msg_cache_count < SPDK_MSG_MEMPOOL_CACHE_SIZE) {
+			SPDK_NOTICELOG("thread:%d 에서 msg_queue_run_batch thread:%d, before:%d\n",thread_now->id,thread->id,thread->msg_cache_count);
+			SLIST_INSERT_HEAD(&thread->msg_cache, msg, link);
+			thread->msg_cache_count++;
+			SPDK_NOTICELOG("thread:%d 에서 msg_queue_run_batch thread:%d, after:%d\n",thread_now->id,thread->id,thread->msg_cache_count);
+		}
+		return 0;
+	
+}*/
 
 static void
 poller_insert_timer(struct spdk_thread *thread, struct spdk_poller *poller, uint64_t now)
@@ -917,7 +984,7 @@ thread_poll(struct spdk_thread *thread, uint32_t max_msgs, uint64_t now)
 		thread->critical_msg = NULL;
 		rc = 1;
 	}
-
+	//	SPDK_NOTICELOG("thread_poll:%d\n",thread->id);
 	msg_count = msg_queue_run_batch(thread, max_msgs);
 	if (msg_count) {
 		rc = 1;
@@ -976,7 +1043,7 @@ spdk_thread_poll(struct spdk_thread *thread, uint32_t max_msgs, uint64_t now)
 	if (now == 0) {
 		now = spdk_get_ticks();
 	}
-
+	//SPDK_NOTICELOG("spdk_thread_poll\n");
 	if (spdk_likely(!thread->in_interrupt)) {
 		rc = thread_poll(thread, max_msgs, now);
 		if (spdk_unlikely(thread->in_interrupt)) {
@@ -1170,7 +1237,7 @@ thread_send_msg_notification(const struct spdk_thread *target_thread)
 }
 
 int
-spdk_thread_send_msg(const struct spdk_thread *thread, spdk_msg_fn fn, void *ctx)
+spdk_thread_send_msg2(const struct spdk_thread *thread, spdk_msg_fn fn, void *ctx)
 {
 	struct spdk_thread *local_thread;
 	struct spdk_msg *msg;
@@ -1192,11 +1259,76 @@ spdk_thread_send_msg(const struct spdk_thread *thread, spdk_msg_fn fn, void *ctx
 			assert(msg != NULL);
 			SLIST_REMOVE_HEAD(&local_thread->msg_cache, link);
 			local_thread->msg_cache_count--;
+			SPDK_NOTICELOG("있음:thread:%d,to thread:%d,msg_cache_count:%d\n",local_thread->id,thread->id,local_thread->msg_cache_count);
 		}
 	}
 
 	if (msg == NULL) {
 		msg = spdk_mempool_get(g_spdk_msg_mempool);
+		SPDK_NOTICELOG("msg is null:%d\n",ttal++);
+		if (!msg) {
+			SPDK_ERRLOG("msg could not be allocated\n");
+			return -ENOMEM;
+		}
+	}
+	msg->fn = fn;
+	msg->arg = ctx;
+
+	rc = spdk_ring_enqueue(thread->messages, (void **)&msg, 1, NULL);
+	if (rc != 1) {
+		SPDK_ERRLOG("msg could not be enqueued\n");
+		SPDK_NOTICELOG("msg_could not be enqueued\n");
+		spdk_mempool_put(g_spdk_msg_mempool, msg);
+		return -EIO;
+	}
+
+	return 1;
+
+}
+	
+
+int
+spdk_thread_send_msg(const struct spdk_thread *thread, spdk_msg_fn fn, void *ctx)
+{
+	struct spdk_thread *local_thread;
+	struct spdk_msg *msg;
+	int rc;
+	//SPDK_NOTICELOG("send !\n");
+	assert(thread != NULL);
+
+	if (spdk_unlikely(thread->state == SPDK_THREAD_STATE_EXITED)) {
+		SPDK_ERRLOG("Thread %s is marked as exited.\n", thread->name);
+		return -EIO;
+	}
+
+	local_thread = _get_thread();
+
+	msg = NULL;
+	if (local_thread != NULL) {
+		//msg_queue_run_batch(local_thread, 10);
+		if (local_thread->msg_cache_count > 0) {
+			msg = SLIST_FIRST(&local_thread->msg_cache);
+			assert(msg != NULL);
+			//SPDK_NOTICELOG("있음:thread:%d,to thread:%d,msg_cache_count:%d\n",local_thread->id,thread->id,local_thread->msg_cache_count);
+			SLIST_REMOVE_HEAD(&local_thread->msg_cache, link);
+			local_thread->msg_cache_count--;
+		}
+		/*
+		else{
+			SPDK_NOTICELOG("없음:thread:%d to thread:%d,msg_cache_count:%d\n",local_thread->id,thread->id,local_thread->msg_cache_count);
+			return -1;
+		}*/
+	}
+	/*
+	else{
+		SPDK_NOTICELOG("local_thread null:%d\n",local_thread->id);
+	}*/
+
+	if (msg == NULL) {
+		//pthread_mutex_lock(&g_devlist_mutex);
+		msg = spdk_mempool_get(g_spdk_msg_mempool);
+		//pthread_mutex_unlock(&g_devlist_mutex);
+		//SPDK_NOTICELOG("D2___msg is null:%d\n",ttal++);
 		if (!msg) {
 			SPDK_ERRLOG("msg could not be allocated\n");
 			return -ENOMEM;
@@ -1206,9 +1338,12 @@ spdk_thread_send_msg(const struct spdk_thread *thread, spdk_msg_fn fn, void *ctx
 	msg->fn = fn;
 	msg->arg = ctx;
 
+	//pthread_mutex_lock(&g_devlist_mutex);
 	rc = spdk_ring_enqueue(thread->messages, (void **)&msg, 1, NULL);
+//	pthread_mutex_unlock(&g_devlist_mutex);
 	if (rc != 1) {
 		SPDK_ERRLOG("msg could not be enqueued\n");
+		//SPDK_NOTICELOG("msg_could not be enqueued\n");
 		spdk_mempool_put(g_spdk_msg_mempool, msg);
 		return -EIO;
 	}
@@ -2448,7 +2583,7 @@ thread_interrupt_msg_process(void *arg)
 		thread->critical_msg = NULL;
 		rc = 1;
 	}
-
+	SPDK_NOTICELOG("thread_interrupt_msg_process\n");
 	msg_count = msg_queue_run_batch(thread, 0);
 	if (msg_count) {
 		rc = 1;

@@ -836,17 +836,22 @@ _nvme_qpair_submit_request(struct spdk_nvme_qpair *qpair, struct nvme_request *r
 
 	nvme_qpair_check_enabled(qpair);
 
+//	printf("_______nvme_qpair_submit_request_id:%d\n",qpair->id);
+	//SPDK_NOTICELOG("_nvme_qpair_submit_request\n");
 	if (spdk_unlikely(nvme_qpair_get_state(qpair) == NVME_QPAIR_DISCONNECTED ||
 			  nvme_qpair_get_state(qpair) == NVME_QPAIR_DISCONNECTING ||
 			  nvme_qpair_get_state(qpair) == NVME_QPAIR_DESTROYING)) {
 		TAILQ_FOREACH_SAFE(child_req, &req->children, child_tailq, tmp) {
+			printf("1\n");
 			nvme_request_remove_child(req, child_req);
 			nvme_request_free_children(child_req);
 			nvme_free_request(child_req);
 		}
 		if (req->parent != NULL) {
 			nvme_request_remove_child(req->parent, req);
+			printf("2\n");
 		}
+		printf("3\n");
 		nvme_free_request(req);
 		return -ENXIO;
 	}
@@ -856,13 +861,16 @@ _nvme_qpair_submit_request(struct spdk_nvme_qpair *qpair, struct nvme_request *r
 		 * This is a split (parent) request. Submit all of the children but not the parent
 		 * request itself, since the parent is the original unsplit request.
 		 */
+		printf("4\n");
 		TAILQ_FOREACH_SAFE(child_req, &req->children, child_tailq, tmp) {
 			if (spdk_likely(!child_req_failed)) {
+				printf("5\n");
 				rc = nvme_qpair_submit_request(qpair, child_req);
 				if (spdk_unlikely(rc != 0)) {
 					child_req_failed = true;
 				}
 			} else { /* free remaining child_reqs since one child_req fails */
+				printf("6\n");
 				nvme_request_remove_child(req, child_req);
 				nvme_request_free_children(child_req);
 				nvme_free_request(child_req);
@@ -874,6 +882,7 @@ _nvme_qpair_submit_request(struct spdk_nvme_qpair *qpair, struct nvme_request *r
 			 * return success since we must wait for those children to complete,
 			 * but set the parent request to failure.
 			 */
+			printf("7\n");
 			if (req->num_children) {
 				req->cpl.status.sct = SPDK_NVME_SCT_GENERIC;
 				req->cpl.status.sc = SPDK_NVME_SC_INTERNAL_DEVICE_ERROR;
@@ -892,6 +901,7 @@ _nvme_qpair_submit_request(struct spdk_nvme_qpair *qpair, struct nvme_request *r
 				continue;
 			}
 
+			printf("8\n");
 			if ((cmd->opc == req->cmd.opc) && cmd->err_count) {
 				/* add to error request list and set cpl */
 				req->timeout_tsc = cmd->timeout_tsc;
@@ -928,7 +938,9 @@ _nvme_qpair_submit_request(struct spdk_nvme_qpair *qpair, struct nvme_request *r
 	if (spdk_likely(nvme_qpair_get_state(qpair) == NVME_QPAIR_ENABLED) ||
 	    (req->cmd.opc == SPDK_NVME_OPC_FABRIC &&
 	     nvme_qpair_get_state(qpair) == NVME_QPAIR_CONNECTING)) {
+		//printf("10\n");
 		rc = nvme_transport_qpair_submit_request(qpair, req);
+		//SPDK_NOTICELOG("in nvme_qpair, return nvme_transport_qpair_submit_request\n");
 	} else {
 		/* The controller is being reset - queue this request and
 		 *  submit it later when the reset is completed.
@@ -938,6 +950,7 @@ _nvme_qpair_submit_request(struct spdk_nvme_qpair *qpair, struct nvme_request *r
 
 	if (spdk_likely(rc == 0)) {
 		if (SPDK_DEBUGLOG_FLAG_ENABLED("nvme")) {
+			printf("101\n");
 			spdk_nvme_print_command(qpair->id, &req->cmd);
 		}
 		req->queued = false;
@@ -950,16 +963,19 @@ _nvme_qpair_submit_request(struct spdk_nvme_qpair *qpair, struct nvme_request *r
 
 error:
 	if (req->parent != NULL) {
+		printf("12\n");
 		nvme_request_remove_child(req->parent, req);
 	}
 
 	/* The request is from queued_req list we should trigger the callback from caller */
 	if (spdk_unlikely(req->queued)) {
+		printf("13\n");
 		nvme_qpair_manual_complete_request(qpair, req, SPDK_NVME_SCT_GENERIC,
 						   SPDK_NVME_SC_INTERNAL_DEVICE_ERROR, true, true);
 		return rc;
 	}
 
+	printf("14\n");
 	nvme_free_request(req);
 
 	return rc;
@@ -970,6 +986,7 @@ nvme_qpair_submit_request(struct spdk_nvme_qpair *qpair, struct nvme_request *re
 {
 	int rc;
 
+	//SPDK_NOTICELOG("nvme_qpair_submit_request\n");
 	if (spdk_unlikely(!STAILQ_EMPTY(&qpair->queued_req) && req->num_children == 0)) {
 		/*
 		 * requests that have no children should be sent to the transport after all
@@ -981,7 +998,9 @@ nvme_qpair_submit_request(struct spdk_nvme_qpair *qpair, struct nvme_request *re
 		return 0;
 	}
 
+	//SPDK_NOTICELOG("______nvme_qpair_submit__________request\n");
 	rc = _nvme_qpair_submit_request(qpair, req);
+	//SPDK_NOTICELOG("_nvme_qpair_submit_request return:rc=%d\n",rc);
 	if (rc == -EAGAIN) {
 		STAILQ_INSERT_TAIL(&qpair->queued_req, req, stailq);
 		req->queued = true;
@@ -1001,6 +1020,7 @@ nvme_qpair_resubmit_request(struct spdk_nvme_qpair *qpair, struct nvme_request *
 	 * This is necessary to preserve the 1:1 relationship between
 	 * completions and resubmissions.
 	 */
+	printf("nvme_qpair_resubmit_****re***quest\n");
 	assert(req->num_children == 0);
 	assert(req->queued);
 	rc = _nvme_qpair_submit_request(qpair, req);

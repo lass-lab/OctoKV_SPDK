@@ -108,6 +108,8 @@
 	spdk_nvmf_request_get_dif_ctx;
 	spdk_nvmf_request_exec_fabrics;
 	spdk_nvmf_request_exec;
+	pass_exec;
+	spdk_nvmf_request_exec2;
 	spdk_nvmf_request_free;
 	spdk_nvmf_request_complete;
 	spdk_nvmf_request_zcopy_start;

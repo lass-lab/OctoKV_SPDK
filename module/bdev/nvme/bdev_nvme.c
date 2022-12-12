@@ -849,6 +849,7 @@ bdev_nvme_submit_request(struct spdk_io_channel *ch, struct spdk_bdev_io *bdev_i
 	struct spdk_nvme_ns *ns;
 	struct spdk_nvme_qpair *qpair;
 	int rc = 0;
+	//SPDK_NOTICELOG("bdev_nvme_submit_request\n");
 /*
 	time_t t;
 	struct tm *lt;
@@ -861,7 +862,8 @@ bdev_nvme_submit_request(struct spdk_io_channel *ch, struct spdk_bdev_io *bdev_i
 		rc = -ENXIO;
 		goto exit;
 	}
-
+	//SPDK_NOTICELOG("bdev_nvme_submit_request:%d\n",bdev_io->type);
+	//printf("bdev_nvme_submit_request\n");
 	switch (bdev_io->type) {
 	case SPDK_BDEV_IO_TYPE_READ:
 		if (bdev_io->u.bdev.iovs && bdev_io->u.bdev.iovs[0].iov_base) {
@@ -896,6 +898,7 @@ bdev_nvme_submit_request(struct spdk_io_channel *ch, struct spdk_bdev_io *bdev_i
 				      bdev_io->u.bdev.num_blocks,
 				      bdev_io->u.bdev.offset_blocks,
 				      bdev->dif_check_flags);
+		//SPDK_NOTICELOG("bdev_nvme_writev fin\n");
 		break;
 	case SPDK_BDEV_IO_TYPE_COMPARE:
 		rc = bdev_nvme_comparev(ns,
@@ -1008,7 +1011,10 @@ bdev_nvme_submit_request(struct spdk_io_channel *ch, struct spdk_bdev_io *bdev_i
 
 exit:
 	if (spdk_unlikely(rc != 0)) {
+		SPDK_NOTICELOG("bdev_nvme_io_complete_before\n");
 		bdev_nvme_io_complete(nbdev_io, rc);
+		SPDK_NOTICELOG("bdev_nvme_io_complete_after\n");
+
 	}
 }
 
@@ -2928,10 +2934,13 @@ bdev_nvme_writev_done(void *ref, const struct spdk_nvme_cpl *cpl)
 	if (spdk_nvme_cpl_is_pi_error(cpl)) {
 		SPDK_ERRLOG("writev completed with PI error (sct=%d, sc=%d)\n",
 			    cpl->status.sct, cpl->status.sc);
+		SPDK_NOTICELOG("writev completed with PI error (sct=%d, sc=%d)\n",
+			    cpl->status.sct, cpl->status.sc);
 		/* Run PI verification for write data buffer if PI error is detected. */
 		bdev_nvme_verify_pi_error(bio);
 	}
 
+	//SPDK_NOTICELOG("bdev_nvme_writev_done\n");
 	bdev_nvme_io_complete_nvme_status(bio, cpl);
 }
 
@@ -3323,7 +3332,7 @@ bdev_nvme_writev(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
 		 uint32_t flags)
 {
 	int rc;
-
+	//SPDK_NOTICELOG("bdev_nvme_writev\n");
 	SPDK_DEBUGLOG(bdev_nvme, "write %" PRIu64 " blocks with offset %#" PRIx64 "\n",
 		      lba_count, lba);
 
@@ -3331,13 +3340,13 @@ bdev_nvme_writev(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
 	bio->iovcnt = iovcnt;
 	bio->iovpos = 0;
 	bio->iov_offset = 0;
-
 	if (iovcnt == 1) {
 		rc = spdk_nvme_ns_cmd_write_with_md(ns, qpair, iov[0].iov_base, md, lba,
 						    lba_count,
 						    bdev_nvme_writev_done, bio,
 						    flags,
 						    0, 0);
+		//SPDK_NOTICELOG("after_spdk_nvme_ns_cmd_write_with_md\n");
 	} else {
 		rc = spdk_nvme_ns_cmd_writev_with_md(ns, qpair, lba, lba_count,
 						     bdev_nvme_writev_done, bio, flags,
@@ -3627,6 +3636,7 @@ bdev_nvme_io_passthru(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
 		SPDK_ERRLOG("nbytes is greater than MDTS %" PRIu32 ".\n", max_xfer_size);
 		return -EINVAL;
 	}
+	printf("bdev_nvme_io_passthru in\n");
 
 	/*
 	 * Each NVMe bdev is a specific namespace, and all NVMe I/O commands require a nsid,

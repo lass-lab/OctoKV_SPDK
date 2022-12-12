@@ -1115,7 +1115,7 @@ nvme_allocate_request(struct spdk_nvme_qpair *qpair,
 		      spdk_nvme_cmd_cb cb_fn, void *cb_arg)
 {
 	struct nvme_request *req;
-
+	//SPDK_NOTICELOG("nvme_allocate_request\n");
 	req = STAILQ_FIRST(&qpair->free_req);
 	if (req == NULL) {
 		return req;
@@ -1176,6 +1176,7 @@ nvme_complete_request(spdk_nvme_cmd_cb cb_fn, void *cb_arg, struct spdk_nvme_qpa
 	struct spdk_nvme_cpl            err_cpl;
 	struct nvme_error_cmd           *cmd;
 
+
 	/* error injection at completion path,
 	 * only inject for successful completed commands
 	 */
@@ -1200,6 +1201,7 @@ nvme_complete_request(spdk_nvme_cmd_cb cb_fn, void *cb_arg, struct spdk_nvme_qpa
 		}
 	}
 
+	//SPDK_NOTICELOG("nvme_complete_request@\n");
 	if (cb_fn) {
 		cb_fn(cb_arg, cpl);
 	}

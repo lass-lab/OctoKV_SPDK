@@ -944,6 +944,8 @@ reactor_run(void *arg)
 			reactor_interrupt_run(reactor);
 		} else {
 			_reactor_run(reactor);
+			//SPDK_NOTICELOG("1.Reactor started on core %u\n", reactor->lcore);
+			//SPDK_NOTICELOG("2.CPUMASK:%d,thread->id:%d\n",spdk_thread_get_cpumask(thread),spdk_thread_get_id(thread));
 		}
 
 		if (g_framework_context_switch_monitor_enabled) {
@@ -979,6 +981,8 @@ reactor_run(void *arg)
 	TAILQ_FOREACH(lw_thread, &reactor->threads, link) {
 		thread = spdk_thread_get_from_ctx(lw_thread);
 		spdk_set_thread(thread);
+		//SPDK_NOTICELOG("Reactor started on core %u\n", reactor->lcore);
+		SPDK_NOTICELOG("reactor->lcore:%u,thread->id:%d\n",reactor->lcore,spdk_thread_get_id(thread));
 		spdk_thread_exit(thread);
 	}
 

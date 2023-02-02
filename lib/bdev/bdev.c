@@ -4242,6 +4242,7 @@ bdev_add_translate(struct spdk_bdev_desc *desc, struct spdk_io_channel *ch,
 //	if(bdev_io->u.nvme_passthru.md_len == 1){
 
 	/*Background 실험 시 다시 켜기*/
+	/*
 	if(nbytes == 1024){	
 	//	SPDK_NOTICELOG("background ####################################\n");
 		for(ij=0;ij<32;ij++){
@@ -4250,7 +4251,7 @@ bdev_add_translate(struct spdk_bdev_desc *desc, struct spdk_io_channel *ch,
 				sprintf(&mdStringg[iii*2], "%02x", (unsigned int)digest[iii]);
 			}
 		}
-	}
+	}*/
 
 	sprintf(string,"%ld", offset);
 	SHA1((unsigned char*)string, strlen(string), (unsigned char*)&digest);

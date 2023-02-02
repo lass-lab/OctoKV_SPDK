@@ -37,6 +37,8 @@
 #include "spdk/event.h"
 #include "spdk/util.h"
 #include "spdk/env.h"
+//#include <stdio.h>
+//#include <stdlib.h>
 
 #if defined __has_include
 #if __has_include(<ncurses/panel.h>)
@@ -102,6 +104,10 @@
 #define FIRST_DATA_ROW 7
 #define HELP_WIN_WIDTH 88
 #define HELP_WIN_HEIGHT 22
+
+//////////// log file //////////////
+FILE *pFILE = NULL;
+////////////////////////////////////
 
 enum tabs {
 	THREADS_TAB,
@@ -712,6 +718,7 @@ get_last_run_counter(const char *poller_name, uint64_t thread_id)
 
 	TAILQ_FOREACH(history, &g_run_counter_history, link) {
 		if (!strcmp(history->poller_name, poller_name) && history->thread_id == thread_id) {
+			//SPDK_NOTICELOG("%d la:thread:%d s\n",history->thread_id, history->last_run_counter);
 			return history->last_run_counter;
 		}
 	}
@@ -726,6 +733,7 @@ get_last_busy_counter(const char *poller_name, uint64_t thread_id)
 
 	TAILQ_FOREACH(history, &g_run_counter_history, link) {
 		if (!strcmp(history->poller_name, poller_name) && history->thread_id == thread_id) {
+			//SPDK_NOTICELOG("%d bu:thread:%d s\n",history->thread_id, history->last_run_counter);
 			return history->last_busy_counter;
 		}
 	}
@@ -1008,7 +1016,6 @@ print_max_len(WINDOW *win, int row, uint16_t col, uint16_t max_len, enum str_ali
 	if (col + cmp_len > max_col - 1) {
 		snprintf(&tmp_str[max_str - DOTS_STR_LEN - 2], DOTS_STR_LEN, "%s", dots);
 	}
-
 	mvwprintw(win, row, col, tmp_str);
 
 	refresh();
@@ -1223,6 +1230,7 @@ refresh_threads_tab(uint8_t current_page)
 			}
 			print_max_len(g_tabs[THREADS_TAB], TABS_DATA_START_ROW + item_index, col,
 				      col_desc[6].max_data_string, ALIGN_RIGHT, busy_time);
+			//SPDK_NOTICELOG("\n %d s\n",busy_time);
 		}
 
 		if (item_index == g_selected_row) {
@@ -1288,6 +1296,7 @@ refresh_pollers_tab(uint8_t current_page)
 		}
 
 		if (!col_desc[3].disabled) {
+			//SPDK_NOTICELOG("dsds\n");
 			last_run_counter = get_last_run_counter(g_pollers_info[i].name, g_pollers_info[i].thread_id);
 			if (g_interval_data == true) {
 				snprintf(run_count, MAX_TIME_STR_LEN, "%" PRIu64, g_pollers_info[i].run_count - last_run_counter);
@@ -1411,6 +1420,17 @@ refresh_cores_tab(uint8_t current_page)
 			}
 			print_max_len(g_tabs[CORES_TAB], TABS_DATA_START_ROW + item_index, offset,
 				      col_desc[4].max_data_string, ALIGN_RIGHT, busy_time);
+			char stT[10];
+			//itoa(i,stT,10);
+			//sprintf(stT,"%d",i);
+			//fputs(stT,pFILE);
+			fputs(", ",pFILE);
+			fputs(busy_time,pFILE);
+			//fputs("\n",pFILE);
+			if(i == 3 ){
+				fputs("\n",pFILE);
+			}
+			//SPDK_NOTICELOG("thread:%d,time:%s s\n",i,busy_time);
 			offset += col_desc[4].max_data_string + 2;
 		}
 
@@ -2109,12 +2129,14 @@ show_core(uint8_t current_page)
 		get_time_str(core_info->busy, busy_time);
 	}
 	mvwprintw(core_win, 5, CORE_WIN_FIRST_COL + 20, idle_time);
+	SPDK_NOTICELOG("idle_time:%d\n",idle_time);
 	mvwhline(core_win, 6, 1, ACS_HLINE, CORE_WIN_WIDTH - 2);
 
 	print_left(core_win, 7, 1, CORE_WIN_WIDTH, "Poller count:          Busy time:", COLOR_PAIR(5));
 	mvwprintw(core_win, 7, CORE_WIN_FIRST_COL, "%" PRIu64,
 		  core_info->pollers_count);
 
+	SPDK_NOTICELOG("busy_time:%d\n",busy_time);
 	mvwprintw(core_win, 7, CORE_WIN_FIRST_COL + 20, busy_time);
 
 	mvwhline(core_win, 8, 1, ACS_HLINE, CORE_WIN_WIDTH - 2);
@@ -2216,7 +2238,6 @@ show_poller(uint8_t current_page)
 	mvwprintw(poller_win, 3, POLLER_WIN_FIRST_COL + 23, poller->thread_name);
 
 	print_left(poller_win, 4, 2, POLLER_WIN_WIDTH, "Run count:", COLOR_PAIR(5));
-
 	last_run_counter = get_last_run_counter(poller->name, poller->thread_id);
 	last_busy_counter = get_last_busy_counter(poller->name, poller->thread_id);
 	if (g_interval_data) {
@@ -2721,6 +2742,9 @@ int main(int argc, char **argv)
 	char *socket = SPDK_DEFAULT_RPC_ADDR;
 	pthread_t data_thread;
 
+	pFILE = fopen("log2.txt","w");
+
+	//	SPDK_NOTICELOG("\n\n\n\n\n\n\n\n\n herehere\nhehehe\n\n\n\n");
 	while ((op = getopt(argc, argv, "r:h")) != -1) {
 		switch (op) {
 		case 'r':
@@ -2748,6 +2772,7 @@ int main(int argc, char **argv)
 		show_stats(&data_thread);
 	}
 
+	fclose(pFILE);
 	finish(0);
 
 	return (0);

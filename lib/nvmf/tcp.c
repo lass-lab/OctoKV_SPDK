@@ -673,7 +673,7 @@ nvmf_tcp_create(struct spdk_nvmf_transport_opts *opts)
 		return NULL;
 	}
 
-	SPDK_NOTICELOG("*** TCP Transport Init ***\n");
+	//SPDK_NOTICELOG("*** TCP Transport Init ***\n");
 
 	SPDK_INFOLOG(nvmf_tcp, "*** TCP Transport Init ***\n"
 		     "  Transport opts:  max_ioq_depth=%d, max_io_size=%d,\n"
@@ -867,8 +867,8 @@ nvmf_tcp_listen(struct spdk_nvmf_transport *transport, const struct spdk_nvme_tr
 		return -EINVAL;
 	}
 
-	SPDK_NOTICELOG("*** NVMe/TCP Target Listening on %s port %s ***\n",
-		       trid->traddr, trid->trsvcid);
+	//SPDK_NOTICELOG("*** NVMe/TCP Target Listening on %s port %s ***\n",
+	//	       trid->traddr, trid->trsvcid);
 
 	TAILQ_INSERT_TAIL(&ttransport->ports, port, link);
 	pthread_mutex_unlock(&ttransport->lock);
@@ -1102,7 +1102,7 @@ static int
 nvmf_tcp_qpair_init(struct spdk_nvmf_qpair *qpair)
 {
 	struct spdk_nvmf_tcp_qpair *tqpair;
-	printf("______++++++++______nvmf_tcp_qpair_init______+++++++________\n");
+	//printf("______++++++++______nvmf_tcp_qpair_init______+++++++________\n");
 
 	tqpair = SPDK_CONTAINEROF(qpair, struct spdk_nvmf_tcp_qpair, qpair);
 

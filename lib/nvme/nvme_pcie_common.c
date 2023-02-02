@@ -631,7 +631,7 @@ nvme_pcie_qpair_submit_tracker(struct spdk_nvme_qpair *qpair, struct nvme_tracke
 	}
 
 	if (!pqpair->flags.delay_cmd_submit) {
-		SPDK_NOTICELOG("3\n");
+		//SPDK_NOTICELOG("3\n");
 		nvme_pcie_qpair_ring_sq_doorbell(qpair);
 	}
 }

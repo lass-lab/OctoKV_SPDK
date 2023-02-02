@@ -144,7 +144,7 @@ nvmf_tgt_create_poll_group(void *io_device, void *ctx_buf)
 			return -1;
 		}
 	}
-	printf("tgt_name:%s___________________----------------\n",tgt->name);
+	//printf("tgt_name:%s___________________----------------\n",tgt->name);
 	//TAILQ_INSERT_TAIL(&g_nvmf_tgts->tgts, tgt, link);
 	pthread_mutex_lock(&tgt->mutex);
 	TAILQ_INSERT_TAIL(&tgt->poll_groups, group, link);

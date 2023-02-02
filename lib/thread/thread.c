@@ -511,7 +511,7 @@ spdk_thread_create(const char *name, struct spdk_cpuset *cpumask)
 	}
 
 	thread->state = SPDK_THREAD_STATE_RUNNING;
-
+	
 	if(g_thread_count == 2 && thread->id == 1){
 		thread1 = thread;
 	}
@@ -1167,7 +1167,7 @@ spdk_thread_get_by_id(uint64_t id)
 	struct spdk_thread *thread;
 
 	if (id == 0 || id >= g_thread_id) {
-		SPDK_ERRLOG("invalid thread id: %" PRIu64 ".\n", id);
+		//SPDK_ERRLOG("invalid thread id: %" PRIu64 ".\n", id);
 		return NULL;
 	}
 	pthread_mutex_lock(&g_devlist_mutex);
@@ -2237,8 +2237,8 @@ spdk_get_io_channel(void *io_device)
 
 	SPDK_DEBUGLOG(thread, "Get io_channel %p for io_device %s (%p) on thread %s refcnt %u\n",
 		      ch, dev->name, dev->io_device, thread->name, ch->ref);
-	printf("Get io_channel %p for io_device %s (%p) on thread %s refcnt %u\n",
-		      ch, dev->name, dev->io_device, thread->name, ch->ref);	
+	//printf("Get io_channel %p for io_device %s (%p) on thread %s refcnt %u\n",
+	///	      ch, dev->name, dev->io_device, thread->name, ch->ref);	
 	dev->refcnt++;
 
 	pthread_mutex_unlock(&g_devlist_mutex);
